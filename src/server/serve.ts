@@ -262,5 +262,5 @@ export async function startServer(opts: { port?: number; project?: string } = {}
     }
   }
   console.log(`场景运行控制台已启动:  http://${HOST}:${port}`);
-  console.log(`默认项目: ${current ?? '(未指定，可在页面选择)'}（页面上可切换）。Ctrl+C 停止。`);
+  console.log(`默认项目: ${current ?? '(无)'}；页面按所选场景路径自动推断项目。Ctrl+C 停止。`);
 }

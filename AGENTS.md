@@ -42,7 +42,7 @@ cp scenarios/example/.env.example scenarios/example/.env  # 每项目一份密�
 pnpm start list                                           # 查看项目、接口目录 + 现有场景
 pnpm start provision [--project <name>]                   # 跑该项目 provision.yaml 一键铺底 -> 写 .state/<project>/provision.json
 pnpm start run [--project <name>] scenarios/<project>/xxx.yaml [more...]  # 执行用例（省略 --project 时从场景路径推断项目）
-pnpm start serve [--project <name>] [--port 8787]         # 前端控制台：浏览器选项目+场景跑用例（只绑 127.0.0.1）
+pnpm start serve [--port 8787]                           # 前端控制台：浏览器选场景跑用例（项目按场景路径自动推断，只绑 127.0.0.1）
 pnpm typecheck                                            # 类型检查
 ```
 > 首次 `provision` 若 404，是网关前缀问题，见 [docs/notes/api-prefix-calibration.md](docs/notes/api-prefix-calibration.md)。鉴权失败见 [docs/notes/auth-and-signing.md](docs/notes/auth-and-signing.md)。多项目/多环境细节见 [docs/notes/projects.md](docs/notes/projects.md)。

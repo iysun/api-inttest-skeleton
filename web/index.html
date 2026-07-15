@@ -155,11 +155,7 @@
       <option value="light">浅色</option>
       <option value="dark">深色</option>
     </select>
-    <label class="text-muted small mb-0">项目</label>
-    <select v-model="curProjectName" class="form-select form-select-sm" style="width:auto">
-      <option v-for="p in projects" :key="p.name" :value="p.name">{{ p.name }}{{ p.name === defaultProject ? ' (默认)' : '' }}{{ p.hasCreds ? '' : ' ⚠无凭据' }}</option>
-    </select>
-    <span class="text-muted small">{{ projectNote }}</span>
+    <span v-if="selectedFile" class="text-muted small">项目 <span class="fw-semibold">{{ curProjectName || '—' }}</span> {{ projectNote }}</span>
     <button class="btn btn-primary btn-sm" :disabled="!canRun" @click="run">运行</button>
   </div>
 </nav>
@@ -225,10 +221,10 @@
     <div v-else-if="previewLoading" class="text-muted small">加载预览… {{ selectedFile }}</div>
     <div v-else-if="previewError" class="alert alert-danger">预览失败：{{ previewError }}</div>
     <collapse-card v-else-if="selectedContent" :title="selectedFile" :open="true">
-      <template #head-extra><span class="text-muted small ms-auto fw-normal">选好项目后点右上「运行」</span></template>
+      <template #head-extra><span class="text-muted small ms-auto fw-normal">点右上「运行」</span></template>
       <code-block :code="selectedContent" lang="yaml" :curl-fn="canCurl ? yamlCurl : null"></code-block>
     </collapse-card>
-    <div v-else class="text-muted text-center mt-5">选择左侧一个场景，选好项目后点「运行」。</div>
+    <div v-else class="text-muted text-center mt-5">选择左侧一个场景后点右上「运行」。</div>
   </main>
 </div>
 </div>
@@ -301,7 +297,6 @@ const app = createApp({
     const theme = ref(localStorage.getItem(THEME_KEY) || 'auto');
     const projects = ref([]);
     const defaultProject = ref('');
-    const curProjectName = ref('');
     const scenarios = ref([]);
     const scenariosLoading = ref(true);
     const scenariosError = ref('');
@@ -316,6 +311,12 @@ const app = createApp({
     const running = ref(false);
     const errorMsg = ref('');
 
+    // 当前项目：由所选场景的路径推断（/api/scenarios 已按后端 inferProject 回填 f.project），
+    // 与 CLI 一致，不再手选；缺省回退默认项目。
+    const curProjectName = computed(() => {
+      const f = scenarios.value.find((x) => x.file === selectedFile.value);
+      return (f && f.project) || defaultProject.value || '';
+    });
     const curProject = computed(() => projects.value.find((p) => p.name === curProjectName.value));
     const projectNote = computed(() => {
       const p = curProject.value;
@@ -347,7 +348,6 @@ const app = createApp({
         const r = await fetch('/api/projects').then((x) => x.json());
         projects.value = r.projects || [];
         defaultProject.value = r.defaultProject || '';
-        curProjectName.value = r.current || r.defaultProject || (projects.value[0] && projects.value[0].name) || '';
       } catch (e) {
         console.error('项目加载失败:', e);
       }
@@ -391,7 +391,7 @@ const app = createApp({
         const resp = await fetch('/api/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ project: curProjectName.value, file: selectedFile.value }),
+          body: JSON.stringify({ file: selectedFile.value }),
         });
         const data = await resp.json();
         runMs.value = Math.round(performance.now() - t0);
@@ -413,7 +413,7 @@ const app = createApp({
     async function yamlCurl() {
       const file = selectedFile.value;
       if (!file) throw new Error('未选择场景');
-      const r = await fetch('/api/curl?project=' + encodeURIComponent(curProjectName.value) + '&file=' + encodeURIComponent(file));
+      const r = await fetch('/api/curl?file=' + encodeURIComponent(file));
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
       return (data.steps || []).map((s) => `# ${s.id} [${s.api}]\n${toCurl(s.request)}`).join('\n\n');
