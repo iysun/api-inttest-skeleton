@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>接口集测 · 场景运行控制台</title>
+<link rel="stylesheet" href="vendor/bootstrap/bootstrap.min.css" />
+<link rel="stylesheet" id="hljs-theme" href="vendor/highlightjs/catppuccin-latte.min.css" />
+<script>
+// 主题初始化（在首帧前设定，避免闪烁）：读取偏好 auto/light/dark → 定 data-bs-theme + 代码高亮主题
+(function () {
+  try {
+    var pref = localStorage.getItem('tyit-theme') || 'auto';
+    var dark = pref === 'dark' || (pref === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+    var l = document.getElementById('hljs-theme');
+    if (l) l.setAttribute('href', 'vendor/highlightjs/' + (dark ? 'catppuccin-mocha' : 'catppuccin-latte') + '.min.css');
+  } catch (e) { /* localStorage 不可用时退回默认（浅色） */ }
+})();
+</script>
+<style>
+  :root { --bs-body-font-family: "Segoe UI", system-ui, -apple-system, "Microsoft YaHei", sans-serif; }
+
+  /* 深色主题：Catppuccin Mocha 调色板 */
+  [data-bs-theme="dark"] {
+    --bs-body-bg: #1e1e2e; --bs-body-color: #cdd6f4;
+    --bs-tertiary-bg: #181825; --bs-secondary-bg: #313244;
+    --bs-border-color: #313244; --bs-secondary-color: #7f849c; --bs-emphasis-color: #b4befe;
+    --bs-card-bg: #181825; --bs-card-border-color: #313244; --bs-card-cap-bg: #313244;
+    /* Catppuccin 语义色（badge/alert/文本 通行/失败） */
+    --bs-primary: #89b4fa; --bs-primary-rgb: 137,180,250;
+    --bs-success: #a6e3a1; --bs-success-rgb: 166,227,161;
+    --bs-danger: #f38ba8; --bs-danger-rgb: 243,139,168;
+    --bs-success-text-emphasis: #a6e3a1; --bs-success-bg-subtle: #26332a; --bs-success-border-subtle: #3b4d3c;
+    --bs-danger-text-emphasis: #f38ba8; --bs-danger-bg-subtle: #3a2730; --bs-danger-border-subtle: #553a45;
+    --ctp-on-accent: #1e1e2e;
+    --ctp-titlebar-bg: #11111b; --ctp-titlebar-border: #11111b;
+    --ctp-sidebar-bg: #181825; --ctp-sidebar-border: #313244;
+    --ctp-list-hover-bg: #313244; --ctp-list-hover-color: #cdd6f4;
+    --ctp-list-active-bg: #45475a; --ctp-list-active-color: #cdd6f4;
+    --ctp-accent: #89b4fa; --ctp-accent-hover: #74a0f0;
+    --ctp-editor-bg: #1e1e2e;
+    --ctp-scrollbar-thumb: #45475a; --ctp-scrollbar-thumb-hover: #585b70;
+  }
+  /* 浅色主题：Catppuccin Latte 调色板 */
+  [data-bs-theme="light"] {
+    --bs-body-bg: #eff1f5; --bs-body-color: #4c4f69;
+    --bs-tertiary-bg: #e6e9ef; --bs-secondary-bg: #ccd0da;
+    --bs-border-color: #ccd0da; --bs-secondary-color: #8c8fa1; --bs-emphasis-color: #7287fd;
+    --bs-card-bg: #e6e9ef; --bs-card-border-color: #ccd0da; --bs-card-cap-bg: #ccd0da;
+    --bs-primary: #1e66f5; --bs-primary-rgb: 30,102,245;
+    --bs-success: #40a02b; --bs-success-rgb: 64,160,43;
+    --bs-danger: #d20f39; --bs-danger-rgb: 210,15,57;
+    --bs-success-text-emphasis: #40a02b; --bs-success-bg-subtle: #e5f0e1; --bs-success-border-subtle: #c6e0bd;
+    --bs-danger-text-emphasis: #d20f39; --bs-danger-bg-subtle: #f7dbe1; --bs-danger-border-subtle: #eebac5;
+    --ctp-on-accent: #eff1f5;
+    --ctp-titlebar-bg: #dce0e8; --ctp-titlebar-border: #dce0e8;
+    --ctp-sidebar-bg: #e6e9ef; --ctp-sidebar-border: #ccd0da;
+    --ctp-list-hover-bg: #ccd0da; --ctp-list-hover-color: #4c4f69;
+    --ctp-list-active-bg: #bcc0cc; --ctp-list-active-color: #4c4f69;
+    --ctp-accent: #1e66f5; --ctp-accent-hover: #0b56ee;
+    --ctp-editor-bg: #eff1f5;
+    --ctp-scrollbar-thumb: #bcc0cc; --ctp-scrollbar-thumb-hover: #acb0be;
+  }
+
+  html, body { height: 100%; }
+  body { overflow: hidden; }
+  .app { display: flex; height: calc(100vh - 3.5rem); }
+  .sidebar { width: 330px; flex-shrink: 0; overflow: auto; border-right: 1px solid var(--ctp-sidebar-border); background: var(--ctp-sidebar-bg); }
+  #out { flex: 1; overflow: auto; padding: 1.25rem; }
+  .sidebar .dir { font-size: .72rem; letter-spacing: .06em; color: var(--bs-secondary-color) !important; }
+
+  /* 标题栏 */
+  .navbar { background: var(--ctp-titlebar-bg) !important; border-bottom-color: var(--ctp-titlebar-border) !important; }
+  .navbar-brand { color: var(--bs-body-color); }
+
+  /* 场景列表：侧栏项 —— 透明底、hover 微亮、选中态 + 左侧强调条 */
+  .sidebar .list-group-item { background: transparent; color: var(--bs-body-color); border: 0; border-radius: 0; }
+  .sidebar .list-group-item:hover { background: var(--ctp-list-hover-bg); color: var(--ctp-list-hover-color); }
+  .sidebar .list-group-item.active {
+    background: var(--ctp-list-active-bg); color: var(--ctp-list-active-color); box-shadow: inset 2px 0 0 var(--ctp-accent);
+  }
+
+  /* 运行按钮：Catppuccin 主按钮（accent 底 + 对比前景） */
+  .btn-primary { --bs-btn-bg: var(--ctp-accent); --bs-btn-border-color: var(--ctp-accent);
+    --bs-btn-hover-bg: var(--ctp-accent-hover); --bs-btn-hover-border-color: var(--ctp-accent-hover);
+    --bs-btn-active-bg: var(--ctp-accent-hover); --bs-btn-active-border-color: var(--ctp-accent-hover);
+    --bs-btn-disabled-bg: var(--ctp-accent); --bs-btn-disabled-border-color: var(--ctp-accent); --bs-btn-disabled-opacity: .45;
+    --bs-btn-color: var(--ctp-on-accent); --bs-btn-hover-color: var(--ctp-on-accent); --bs-btn-active-color: var(--ctp-on-accent); --bs-btn-disabled-color: var(--ctp-on-accent); }
+
+  /* 折叠标题按钮：hover 走 accent */
+  .btn-link { --bs-btn-color: var(--bs-body-color); --bs-btn-hover-color: var(--ctp-accent); }
+
+  /* 通行/失败徽章：Catppuccin 语义底 + 对比前景（避免浅色 pastel 上白字看不清） */
+  .text-bg-success { background-color: var(--bs-success) !important; color: var(--ctp-on-accent) !important; }
+  .text-bg-danger { background-color: var(--bs-danger) !important; color: var(--ctp-on-accent) !important; }
+
+  /* 代码块：编辑器底色（面板里嵌编辑器的层次） */
+  pre.yaml { font: .78rem/1.55 "SFMono-Regular", Consolas, "Cascadia Code", monospace; background: var(--ctp-editor-bg);
+    padding: .75rem 1rem; margin: 0; white-space: pre; overflow: auto; }
+  pre.yaml code.hljs { background: transparent; padding: 0; }
+
+  [v-cloak] { display: none; }
+  .btn[aria-expanded="false"] .caret { transform: rotate(-90deg); }
+  .caret { display: inline-block; transition: transform .15s; }
+  .assert-ok { color: var(--bs-secondary-color); }
+  .assert-no { color: var(--bs-danger); }
+  .scen-desc { font-size: .72rem; color: var(--bs-secondary-color); margin-top: .1rem; }
+
+  /* 代码块复制动作：右上角 icon */
+  .code-wrap { position: relative; }
+  .code-actions { position: absolute; top: .3rem; right: .5rem; display: flex; gap: .25rem; opacity: .35; transition: opacity .15s; z-index: 2; }
+  .code-wrap:hover .code-actions { opacity: 1; }
+  .code-copy-btn { display: inline-flex; align-items: center; gap: .2rem; padding: .1rem .35rem; font-size: .72rem; line-height: 1;
+    background: var(--bs-body-bg); color: var(--bs-secondary-color); border: 1px solid var(--bs-border-color); border-radius: .25rem; cursor: pointer; }
+  .code-copy-btn:hover { color: var(--ctp-accent); border-color: var(--ctp-accent); }
+  .code-copy-btn svg { width: .85rem; height: .85rem; }
+
+  /* 细滚动条 */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--ctp-scrollbar-thumb); border-radius: 0; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ctp-scrollbar-thumb-hover); }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+<nav class="navbar bg-body-tertiary border-bottom px-3">
+  <span class="navbar-brand mb-0 h1 fs-6">接口集测 · 场景运行控制台</span>
+  <div class="d-flex align-items-center gap-2 ms-auto">
+    <label class="text-muted small mb-0">主题</label>
+    <select v-model="theme" class="form-select form-select-sm" style="width:auto">
+      <option value="auto">跟随系统</option>
+      <option value="light">浅色</option>
+      <option value="dark">深色</option>
+    </select>
+    <label class="text-muted small mb-0">环境</label>
+    <select v-model="curEnvName" class="form-select form-select-sm" style="width:auto">
+      <option v-for="e in envs" :key="e.name" :value="e.name">{{ e.name }}{{ e.name === defaultEnv ? ' (默认)' : '' }}{{ e.hasCreds ? '' : ' ⚠无凭据' }}</option>
+    </select>
+    <span class="text-muted small">{{ envNote }}</span>
+    <button class="btn btn-primary btn-sm" :disabled="!canRun" @click="run">运行</button>
+  </div>
+</nav>
+<div class="app">
+  <aside class="sidebar">
+    <div v-if="scenariosLoading" class="p-3 text-muted small">加载场景中…</div>
+    <div v-else-if="scenariosError" class="p-3 text-danger small">场景加载失败: {{ scenariosError }}</div>
+    <div v-else-if="!scenarios.length" class="p-3 text-muted small">无场景文件</div>
+    <div v-else>
+      <template v-for="g in groupedScenarios" :key="g.dir">
+        <div class="dir px-3 pt-3 pb-1 text-muted fw-semibold text-uppercase">{{ g.dir }}/</div>
+        <div class="list-group list-group-flush">
+          <button v-for="f in g.files" :key="f.file" type="button"
+            class="list-group-item list-group-item-action py-2 small"
+            :class="{ active: f.file === selectedFile }" @click="selectFile(f.file)">
+            <div class="text-truncate">{{ f.base }}</div>
+            <div v-if="f.name" class="scen-desc text-truncate">{{ f.name }}</div>
+          </button>
+        </div>
+      </template>
+    </div>
+  </aside>
+  <main id="out">
+    <div v-if="running" class="text-muted small">运行中… {{ selectedFile }}</div>
+    <template v-else-if="errorMsg">
+      <div class="alert alert-danger" style="white-space:pre-wrap">运行失败：{{ errorMsg }}</div>
+      <div class="text-muted small">{{ runMs }}ms</div>
+    </template>
+    <template v-else-if="report">
+      <div class="alert d-flex align-items-center" :class="report.ok ? 'alert-success' : 'alert-danger'">
+        <span class="fw-semibold">{{ report.ok ? '✔ 通过' : '✘ 失败' }}</span>
+        <span class="ms-2">{{ report.name }}</span>
+        <span class="badge ms-auto" :class="report.ok ? 'text-bg-success' : 'text-bg-danger'">{{ passedCount }}/{{ report.steps.length }} 步</span>
+      </div>
+      <div class="text-muted small mb-3">环境 {{ runInfo.env }} → {{ runInfo.baseUrl }}{{ runInfo.apiPrefix }} · {{ runInfo.file }} · {{ runMs }}ms</div>
+      <collapse-card v-if="selectedContent" title="YAML 源码" :open="false">
+        <code-block :code="selectedContent" lang="yaml" :curl-fn="canCurl ? yamlCurl : null"></code-block>
+      </collapse-card>
+      <div v-for="(s, i) in report.steps" :key="i" class="card mb-2">
+        <div class="card-header d-flex align-items-center gap-2 py-2">
+          <span class="badge" :class="s.ok ? 'text-bg-success' : 'text-bg-danger'">{{ s.ok ? '✔' : '✘' }}</span>
+          <strong>{{ s.id }}</strong>
+          <span class="text-muted small">[{{ s.api }}]</span>
+          <span class="ms-auto text-muted small">code={{ s.code }} · http={{ s.httpStatus }}</span>
+        </div>
+        <div v-if="s.asserts && s.asserts.length" class="card-body py-2">
+          <div v-for="(a, j) in s.asserts" :key="j" class="small" :class="a.ok ? 'assert-ok' : 'assert-no'">{{ a.ok ? '·' : '✘' }} {{ a.expr }}{{ a.ok ? '' : '  ' + (a.detail || '') }}</div>
+        </div>
+        <div v-if="s.error" class="card-body py-2 text-danger small">! {{ s.error }}</div>
+        <collapse-card title="request" :open="false" inline>
+          <code-block :code="prettyReq(s.request)" lang="json" :curl="toCurl(s.request)"></code-block>
+        </collapse-card>
+        <collapse-card title="response" :open="!s.ok" inline>
+          <code-block :code="pretty(s.response)" lang="json"></code-block>
+        </collapse-card>
+      </div>
+    </template>
+    <div v-else-if="previewLoading" class="text-muted small">加载预览… {{ selectedFile }}</div>
+    <div v-else-if="previewError" class="alert alert-danger">预览失败：{{ previewError }}</div>
+    <collapse-card v-else-if="selectedContent" :title="selectedFile" :open="true">
+      <template #head-extra><span class="text-muted small ms-auto fw-normal">选好环境后点右上「运行」</span></template>
+      <code-block :code="selectedContent" lang="yaml" :curl-fn="canCurl ? yamlCurl : null"></code-block>
+    </collapse-card>
+    <div v-else class="text-muted text-center mt-5">选择左侧一个场景，选好环境后点「运行」。</div>
+  </main>
+</div>
+</div>
+
+<script src="vendor/highlightjs/highlight.min.js"></script>
+<script src="vendor/vue/vue.global.prod.js"></script>
+<script>
+const { createApp, ref, computed, watch, onMounted } = Vue;
+
+/** JSON/字符串统一转文本，喂给 v-highlight */
+function pretty(v) {
+  if (v === undefined) return '';
+  try { return typeof v === 'string' ? v : JSON.stringify(v, null, 2); } catch { return String(v); }
+}
+/** v-highlight 指令的着色实现：独占 <code> 内容，避免与 Vue 争夺 DOM */
+function hlEl(el, val) {
+  const { code, lang } = val || {};
+  el.textContent = code || '';
+  el.className = 'language-' + (lang || 'yaml');
+  el.removeAttribute('data-highlighted');
+  if (window.hljs) hljs.highlightElement(el);
+}
+/** 复制文本到剪贴板：优先 Clipboard API（127.0.0.1 为安全上下文），失败回退 execCommand */
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (e) { /* 落到 execCommand 回退 */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+/** shell 单引号转义：' -> '\'' */
+function shq(s) { return String(s).replace(/'/g, `'\\''`); }
+/** request 屏显：只展示 method/url/params/body，不含 headers（签名不上屏，仅随 curl 复制） */
+function prettyReq(req) {
+  if (!req) return '';
+  return pretty({ method: req.method, url: req.url, params: req.params, body: req.body });
+}
+/** 生成可直接运行的 curl（完整 URL + 真实签名头 + body） */
+function toCurl(req) {
+  if (!req) return '';
+  const method = req.method || 'GET';
+  const lines = [`curl -X ${method} '${shq(req.url || '')}'`];
+  const headers = req.headers || { 'Content-Type': 'application/json' };
+  for (const [k, v] of Object.entries(headers)) lines.push(`  -H '${shq(k)}: ${shq(v)}'`);
+  if (method !== 'GET' && method !== 'DELETE' && req.body !== undefined) {
+    lines.push(`  --data '${shq(JSON.stringify(req.body))}'`);
+  }
+  return lines.join(' \\\n');
+}
+
+const app = createApp({
+  setup() {
+    const THEME_KEY = 'tyit-theme';
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+
+    const theme = ref(localStorage.getItem(THEME_KEY) || 'auto');
+    const envs = ref([]);
+    const defaultEnv = ref('');
+    const curEnvName = ref('');
+    const scenarios = ref([]);
+    const scenariosLoading = ref(true);
+    const scenariosError = ref('');
+    const selectedFile = ref(null);
+    const selectedContent = ref('');
+    const previewLoading = ref(false);
+    const previewError = ref('');
+    const report = ref(null);
+    const runInfo = ref({});
+    const runMs = ref(0);
+    const running = ref(false);
+    const errorMsg = ref('');
+
+    const curEnv = computed(() => envs.value.find((e) => e.name === curEnvName.value));
+    const envNote = computed(() => {
+      const e = curEnv.value;
+      return e ? `→ ${e.baseUrl}${e.apiPrefix}${e.hasCreds ? '' : '（缺 .env.' + e.name + '）'}` : '';
+    });
+    const canRun = computed(() => !!selectedFile.value && !!curEnv.value && !!curEnv.value.hasCreds && !running.value);
+    const canCurl = computed(() => !!curEnv.value && !!curEnv.value.hasCreds);
+    const passedCount = computed(() => (report.value ? report.value.steps.filter((s) => s.ok).length : 0));
+    const groupedScenarios = computed(() => {
+      const groups = {};
+      for (const f of scenarios.value) {
+        const i = f.file.lastIndexOf('/');
+        const dir = i >= 0 ? f.file.slice(0, i) : '.';
+        const base = i >= 0 ? f.file.slice(i + 1) : f.file;
+        (groups[dir] = groups[dir] || []).push({ file: f.file, name: f.name, base });
+      }
+      return Object.keys(groups).sort().map((dir) => ({ dir, files: groups[dir] }));
+    });
+
+    async function loadEnvs() {
+      try {
+        const r = await fetch('/api/environments').then((x) => x.json());
+        envs.value = r.envs || [];
+        defaultEnv.value = r.defaultEnv || '';
+        curEnvName.value = r.current || r.defaultEnv || (envs.value[0] && envs.value[0].name) || '';
+      } catch (e) {
+        console.error('环境加载失败:', e);
+      }
+    }
+    async function loadScenarios() {
+      scenariosLoading.value = true;
+      scenariosError.value = '';
+      try {
+        const r = await fetch('/api/scenarios').then((x) => x.json());
+        scenarios.value = r.files || [];
+      } catch (e) {
+        scenariosError.value = String((e && e.message) || e);
+      } finally {
+        scenariosLoading.value = false;
+      }
+    }
+    async function selectFile(file) {
+      selectedFile.value = file;
+      selectedContent.value = '';
+      report.value = null;
+      errorMsg.value = '';
+      previewError.value = '';
+      previewLoading.value = true;
+      try {
+        const r = await fetch('/api/scenario?file=' + encodeURIComponent(file)).then((x) => x.json());
+        if (r.content == null) throw new Error(r.error || '无内容');
+        selectedContent.value = r.content;
+      } catch (e) {
+        previewError.value = String((e && e.message) || e);
+      } finally {
+        previewLoading.value = false;
+      }
+    }
+    async function run() {
+      if (!selectedFile.value) return;
+      running.value = true;
+      errorMsg.value = '';
+      report.value = null;
+      const t0 = performance.now();
+      try {
+        const resp = await fetch('/api/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ env: curEnvName.value, file: selectedFile.value }),
+        });
+        const data = await resp.json();
+        runMs.value = Math.round(performance.now() - t0);
+        if (!resp.ok) {
+          errorMsg.value = data.error || `HTTP ${resp.status}`;
+          return;
+        }
+        report.value = data.report;
+        runInfo.value = { env: data.env, baseUrl: data.baseUrl, apiPrefix: data.apiPrefix, file: data.file };
+      } catch (e) {
+        runMs.value = Math.round(performance.now() - t0);
+        errorMsg.value = String((e && e.message) || e);
+      } finally {
+        running.value = false;
+      }
+    }
+
+    /** 拉取当前场景每步的请求元数据，用 toCurl 拼成多步 curl（供 YAML 块「复制为 curl」） */
+    async function yamlCurl() {
+      const file = selectedFile.value;
+      if (!file) throw new Error('未选择场景');
+      const r = await fetch('/api/curl?env=' + encodeURIComponent(curEnvName.value) + '&file=' + encodeURIComponent(file));
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      return (data.steps || []).map((s) => `# ${s.id} [${s.api}]\n${toCurl(s.request)}`).join('\n\n');
+    }
+
+    /* 主题：设 data-bs-theme + 切代码高亮主题；watch 持久化，auto 档跟随系统 */
+    function applyTheme(pref) {
+      const dark = pref === 'dark' || (pref === 'auto' && mql.matches);
+      document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+      const l = document.getElementById('hljs-theme');
+      if (l) l.setAttribute('href', 'vendor/highlightjs/' + (dark ? 'catppuccin-mocha' : 'catppuccin-latte') + '.min.css');
+    }
+    watch(theme, (v) => {
+      try { localStorage.setItem(THEME_KEY, v); } catch (e) { /* localStorage 不可用则仅本次生效 */ }
+      applyTheme(v);
+    });
+    mql.addEventListener('change', () => { if (theme.value === 'auto') applyTheme('auto'); });
+
+    onMounted(() => {
+      applyTheme(theme.value);
+      loadEnvs();
+      loadScenarios();
+    });
+
+    return {
+      theme, envs, defaultEnv, curEnvName, scenarios, scenariosLoading, scenariosError,
+      selectedFile, selectedContent, previewLoading, previewError, report, runInfo, runMs,
+      running, errorMsg, envNote, canRun, canCurl, passedCount, groupedScenarios,
+      selectFile, run, pretty, prettyReq, toCurl, yamlCurl,
+    };
+  },
+});
+
+/** 代码高亮指令：<code v-highlight="{ code, lang }"> */
+app.directive('highlight', {
+  mounted: (el, b) => hlEl(el, b.value),
+  updated: (el, b) => hlEl(el, b.value),
+});
+
+/** 折叠卡片：默认 card 样式；inline=true 走步骤内 border-top 小样式（request/response） */
+app.component('collapse-card', {
+  props: {
+    title: String,
+    open: { type: Boolean, default: true },
+    inline: { type: Boolean, default: false },
+  },
+  data() { return { show: this.open }; },
+  template: `
+    <div v-if="inline" class="border-top">
+      <button class="btn btn-link btn-sm text-decoration-none px-3 py-1 d-flex align-items-center gap-2"
+        type="button" :aria-expanded="show" @click="show = !show">
+        <span class="caret">▾</span>{{ title }}
+      </button>
+      <div v-show="show"><slot></slot></div>
+    </div>
+    <div v-else class="card mb-3">
+      <div class="card-header p-0">
+        <button class="btn btn-link text-decoration-none w-100 text-start px-3 py-2 d-flex align-items-center gap-2"
+          type="button" :aria-expanded="show" @click="show = !show">
+          <span class="caret">▾</span><span class="fw-semibold">{{ title }}</span><slot name="head-extra"></slot>
+        </button>
+      </div>
+      <div v-show="show"><slot></slot></div>
+    </div>
+  `,
+});
+
+/** 代码块 + 右上角复制动作：复制原文；curl 非空时多一个「复制为 curl」按钮 */
+app.component('code-block', {
+  props: {
+    code: { type: String, default: '' },
+    lang: { type: String, default: 'yaml' },
+    curl: { type: String, default: '' },
+    curlFn: { type: Function, default: null },
+  },
+  data() { return { copied: '' }; },
+  computed: {
+    hasCurl() { return !!this.curl || !!this.curlFn; },
+  },
+  methods: {
+    async doCopy(which) {
+      let text;
+      if (which === 'curl') {
+        try { text = this.curlFn ? await this.curlFn() : this.curl; }
+        catch (e) { window.alert('生成 curl 失败：' + ((e && e.message) || e)); return; }
+      } else {
+        text = this.code;
+      }
+      const ok = await copyText(text);
+      if (!ok) return;
+      this.copied = which;
+      setTimeout(() => { if (this.copied === which) this.copied = ''; }, 1200);
+    },
+  },
+  template: `
+    <div class="code-wrap">
+      <div class="code-actions">
+        <button type="button" class="code-copy-btn" :title="copied === 'code' ? '已复制' : '复制'" @click="doCopy('code')">
+          <svg v-if="copied === 'code'" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg>
+          <svg v-else viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.3" y="5.3" width="8.2" height="8.2" rx="1.3"/><path d="M10.7 5.3V4a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v6.7a1 1 0 0 0 1 1h1.3"/></svg>
+        </button>
+        <button v-if="hasCurl" type="button" class="code-copy-btn" :title="copied === 'curl' ? '已复制' : '复制为 curl'" @click="doCopy('curl')">{{ copied === 'curl' ? '已复制' : 'curl' }}</button>
+      </div>
+      <pre class="yaml"><code v-highlight="{ code, lang }"></code></pre>
+    </div>
+  `,
+});
+
+app.mount('#app');
+</script>
+</body>
+</html>

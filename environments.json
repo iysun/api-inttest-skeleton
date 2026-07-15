@@ -1,0 +1,18 @@
+{
+  "$comment": "各环境的非密配置（入库）。密钥放各自 gitignore 的 .env.<name>。用 --env <name> 或 TY_ENV 选择，缺省用 defaultEnv。authType: none|bearer|hmac，可被 .env 的 AUTH_TYPE 覆盖。",
+  "defaultEnv": "stable",
+  "environments": {
+    "stable": {
+      "$comment": "永久稳定环境，url 固定、一直存在，默认命中。填入你的 baseUrl。",
+      "baseUrl": "",
+      "apiPrefix": "",
+      "authType": "hmac"
+    },
+    "dev": {
+      "$comment": "当前迭代环境，每次迭代重新部署，baseUrl 与 .env.dev 密钥都会变化。",
+      "baseUrl": "",
+      "apiPrefix": "",
+      "authType": "hmac"
+    }
+  }
+}

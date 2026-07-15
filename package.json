@@ -1,0 +1,32 @@
+{
+  "name": "api-inttest",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "接口集测工程骨架：一键铺底 + 声明式 YAML 用例 + 通用 runner（可插拔鉴权），供开发自测接口。",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "apiit": "src/cli.ts"
+  },
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "provision": "tsx src/cli.ts provision",
+    "run": "tsx src/cli.ts run",
+    "list": "tsx src/cli.ts list",
+    "serve": "tsx src/cli.ts serve",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
