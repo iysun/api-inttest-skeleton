@@ -8,6 +8,7 @@ import {
   loadConfigForProject,
   listProjectsDetailed,
   listProjectNames,
+  projectDirPath,
   resolveProjectName,
 } from '../config.js';
 import { ApiClient } from '../client/http.js';
@@ -48,24 +49,30 @@ function readScenarioName(abs: string): string | undefined {
   }
 }
 
-/** 递归收集 scenarios/ 下的 yaml，返回相对 ROOT_DIR 的 posix 路径 + 场景描述(name) + 所属项目 */
+/**
+ * 收集场景 yaml：只遍历 listProjectNames() 发现的项目目录（含 config.json 的目录），
+ * 用已知项目名直接打标。vendor/node_modules 等非项目目录不会被访问。
+ * 返回相对 ROOT_DIR 的 posix 路径 + 场景描述(name) + 所属项目。
+ */
 function listScenarioFiles(): { file: string; name?: string; project?: string }[] {
   const out: { file: string; name?: string; project?: string }[] = [];
-  const walk = (d: string) => {
+  const walk = (d: string, project: string) => {
     if (!fs.existsSync(d)) return;
     for (const name of fs.readdirSync(d).sort()) {
       const full = path.join(d, name);
-      if (fs.statSync(full).isDirectory()) walk(full);
+      if (fs.statSync(full).isDirectory()) walk(full, project);
       else if (name.endsWith('.yaml') || name.endsWith('.yml')) {
         out.push({
           file: path.relative(ROOT_DIR, full).split(path.sep).join('/'),
           name: readScenarioName(full),
-          project: inferProject(full),
+          project,
         });
       }
     }
   };
-  walk(SCEN_DIR);
+  for (const project of listProjectNames()) {
+    walk(projectDirPath(project), project);
+  }
   return out;
 }
 

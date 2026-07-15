@@ -50,7 +50,7 @@ export interface LoadConfigOptions {
   requireCreds?: boolean;
 }
 
-function projectDirPath(name: string): string {
+export function projectDirPath(name: string): string {
   return path.join(SCENARIOS_DIR, name);
 }
 function projectConfigPath(name: string): string {
