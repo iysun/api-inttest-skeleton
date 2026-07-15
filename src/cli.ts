@@ -16,6 +16,7 @@ import { provision } from './provision/provision.js';
 import { startServer } from './server/serve.js';
 import { loadState } from './state.js';
 import { loadHooks, invokeHook, type HookContext } from './hooks.js';
+import { parseVarValue } from './runner/context.js';
 
 /** 从任意位置抽出 --project/-P（或别名 --env/-e）<name>，返回 { project, rest }（已剥离该选项） */
 function extractProject(args: string[]): { project?: string; rest: string[] } {
@@ -34,6 +35,31 @@ function extractProject(args: string[]): { project?: string; rest: string[] } {
     }
   }
   return { project, rest };
+}
+
+/** 从任意位置抽出可重复的 --var <k>=<v>（或 --var=<k>=<v>），返回 { vars, rest }（已剥离该选项） */
+function extractVars(args: string[]): { vars: Record<string, unknown>; rest: string[] } {
+  const rest: string[] = [];
+  const vars: Record<string, unknown> = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    let kv: string | undefined;
+    if (a === '--var') {
+      kv = args[++i];
+    } else if (a.startsWith('--var=')) {
+      kv = a.slice('--var='.length);
+    } else {
+      rest.push(a);
+      continue;
+    }
+    const eq = kv?.indexOf('=') ?? -1;
+    if (!kv || eq < 0) {
+      console.error(`非法 --var 用法（需 key=value）: ${kv ?? ''}`);
+      process.exit(2);
+    }
+    vars[kv.slice(0, eq)] = parseVarValue(kv.slice(eq + 1));
+  }
+  return { vars, rest };
 }
 
 /**
@@ -56,19 +82,20 @@ function inferProject(absFile: string): string | undefined {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
-  const { project: projectOpt, rest: args } = extractProject(argv);
+  const { project: projectOpt, rest: argsAfterProject } = extractProject(argv);
+  const { vars, rest: args } = extractVars(argsAfterProject);
   const [cmd, ...rest] = args;
 
   switch (cmd) {
     case 'provision': {
       const file = rest[0]; // 可选：自定义铺底场景
-      const ok = await provision(file ? path.resolve(file) : undefined, projectOpt);
+      const ok = await provision(file ? path.resolve(file) : undefined, projectOpt, vars);
       process.exit(ok ? 0 : 1);
       break;
     }
     case 'run': {
       if (!rest[0]) {
-        console.error('用法: apiit run [--project <name>] <scenario.yaml> [more.yaml ...]');
+        console.error('用法: apiit run [--project <name>] [--var k=v ...] <scenario.yaml> [more.yaml ...]');
         process.exit(2);
       }
       const files = rest.map((f) => path.resolve(f));
@@ -101,7 +128,7 @@ async function main(): Promise<void> {
       let allOk = true;
       for (const f of files) {
         const scenario = loadScenario(f);
-        const report = await runScenario(client, scenario, catalog, cfg.project);
+        const report = await runScenario(client, scenario, catalog, cfg.project, vars);
         printReport(report);
         allOk = allOk && report.ok;
       }
@@ -194,8 +221,8 @@ function usage(): void {
 接口集测工程 CLI（按项目组织：scenarios/<project>/ 各自带 config.json + .env + provision.yaml + hooks.ts）
 
 用法:
-  pnpm start provision [--project <name>] [scenario.yaml]   跑该项目 provision.yaml 铺底，写入 .state/<project>
-  pnpm start run [--project <name>] <scenario.yaml> [...]   执行用例（省略 --project 时从场景路径推断项目）
+  pnpm start provision [--project <name>] [--var k=v ...] [scenario.yaml]  跑该项目 provision.yaml 铺底，写入 .state/<project>
+  pnpm start run [--project <name>] [--var k=v ...] <scenario.yaml> [...] 执行用例（省略 --project 时从场景路径推断项目）
   pnpm start list                                           列出项目、接口目录与场景
   pnpm start serve [--project <name>] [--port 8787]         启动本地控制台（浏览器选项目+场景跑用例）
   pnpm start help                                           显示本帮助
@@ -203,6 +230,10 @@ function usage(): void {
 项目: 每个 scenarios/<name>/ 是一个项目(=一个环境/目标)，非密端点/鉴权在 config.json（入库），
       密钥在 scenarios/<name>/.env（gitignore）。选择优先级 --project/--env > TY_PROJECT/TY_ENV >
       config.json 里 default:true 的项目 > 唯一项目。首次: cp scenarios/<name>/.env.example scenarios/<name>/.env 填凭据。
+
+变量覆盖: --var k=v 可重复传，调用时覆盖场景 YAML 里的 vars（不改文件）。value 先按 JSON 尝试解析
+      （"3"→数字、"true"→布尔、'{"a":1}'→对象），解析失败则按原始字符串处理，例如：
+      pnpm start run scenarios/example/example.yaml --var bizNo=IT-001 --var count=3
 `);
 }
 

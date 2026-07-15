@@ -14,7 +14,11 @@ import { loadHooks, invokeHook, type HookContext } from '../hooks.js';
  * 前后自动调用项目 hooks.ts 的 beforeProvision / afterProvision。
  * 幂等：以固定前缀的业务主键为幂等键，后端遇既有数据返回既有标识（见 docs/notes）。
  */
-export async function provision(scenarioFile?: string, projectName?: string): Promise<boolean> {
+export async function provision(
+  scenarioFile?: string,
+  projectName?: string,
+  varsOverride?: Record<string, unknown>
+): Promise<boolean> {
   const cfg = loadConfig({ project: projectName, requireCreds: true });
   console.error(`项目: ${cfg.project}  ->  ${cfg.baseUrl}${cfg.apiPrefix}`);
   const client = await createApiClient(cfg);
@@ -40,7 +44,7 @@ export async function provision(scenarioFile?: string, projectName?: string): Pr
 
   const scenario = loadScenario(file);
   const catalog = await loadCatalog(cfg.projectDir);
-  const report = await runScenario(client, scenario, catalog, cfg.project);
+  const report = await runScenario(client, scenario, catalog, cfg.project, varsOverride);
   printReport(report);
 
   // 收集 exports 到该项目 state

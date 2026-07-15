@@ -1,5 +1,14 @@
 /** 上下文求值与 ${...} 插值 */
 
+/** 解析调用时传入的 var 覆盖值：能按 JSON 解析（数字/布尔/对象/数组）就用解析结果，否则按原始字符串处理 */
+export function parseVarValue(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
 /** 按点路径从对象取值，如 getPath(obj, 'data.successData.0.userCode') */
 export function getPath(scope: unknown, dotPath: string): unknown {
   const parts = dotPath.split('.').map((p) => p.trim()).filter(Boolean);

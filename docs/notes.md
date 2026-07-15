@@ -13,3 +13,4 @@
 - [API_PREFIX 校准](notes/api-prefix-calibration.md) — 首次 provision 返回 404 时如何按环境调整网关前缀，以及按接口用 `ApiDef.prefix` 覆盖多服务前缀。
 - [统一响应封装](notes/response-envelope.md) — `{code,message,data}` 与成功码约定、冲突/幂等语义、常用点路径。
 - [幂等与铺底状态](notes/idempotency-and-state.md) — 业务主键固定前缀幂等，`.state/<project>/provision.json` 的写入与 `${state.*}` 复用。
+- [调用时覆盖 vars](notes/var-overrides.md) — CLI `--var key=value` 与 web 控制台粘贴 YAML 两种方式，临时覆盖场景 `vars` 而不改文件，合并优先级与类型推断规则。

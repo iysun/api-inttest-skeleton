@@ -258,6 +258,12 @@
     </div>
   </aside>
   <main id="out">
+    <collapse-card v-if="selectedFile" title="覆盖变量" :open="false">
+      <div class="p-3">
+        <textarea class="form-control form-control-sm font-monospace" rows="5" v-model="varsOverrideText"
+          placeholder="YAML 格式，运行时覆盖场景 YAML 里的 vars；可直接粘贴 vars: 块，或只粘贴里面缩进的键值行，例如：&#10;vars:&#10;  signFlowId: &quot;xxxxx&quot;"></textarea>
+      </div>
+    </collapse-card>
     <div v-if="running" class="text-muted small">运行中… {{ selectedFile }}</div>
     <template v-else-if="errorMsg">
       <div class="alert alert-danger" style="white-space:pre-wrap">运行失败：{{ errorMsg }}</div>
@@ -394,6 +400,7 @@ const app = createApp({
     const runMs = ref(0);
     const running = ref(false);
     const errorMsg = ref('');
+    const varsOverrideText = ref(''); // 一行一个 key=value，运行时覆盖场景 YAML 的 vars（值按 JSON 尝试解析交给后端处理）
 
     // 当前项目：由所选场景的路径推断（/api/scenarios 已按后端 inferProject 回填 f.project），
     // 与 CLI 一致，不再手选；缺省回退默认项目。
@@ -484,7 +491,7 @@ const app = createApp({
         const resp = await fetch('/api/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file: selectedFile.value }),
+          body: JSON.stringify({ file: selectedFile.value, varsYaml: varsOverrideText.value }),
         });
         const data = await resp.json();
         runMs.value = Math.round(performance.now() - t0);
@@ -534,7 +541,7 @@ const app = createApp({
     return {
       theme, themeOptions, projects, defaultProject, curProjectName, scenarios, scenariosLoading, scenariosError,
       selectedFile, selectedContent, previewLoading, previewError, report, runInfo, runMs,
-      running, errorMsg, runHint, canRun, canCurl, passedCount, groupedScenarios,
+      running, errorMsg, varsOverrideText, runHint, canRun, canCurl, passedCount, groupedScenarios,
       isExpanded, toggleDir, displayUrl,
       selectFile, run, pretty, prettyReq, toCurl, yamlCurl,
     };

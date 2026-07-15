@@ -128,11 +128,13 @@ export async function runScenario(
   client: ApiClient,
   scenario: Scenario,
   catalog: ApiCatalog,
-  project?: string
+  project?: string,
+  varsOverride?: Record<string, unknown>
 ): Promise<ScenarioReport> {
-  // 上下文：vars 顶层展开 + env + state + steps
+  // 上下文：vars 顶层展开（调用时覆盖优先于 YAML）+ env + state + steps
   const context: Record<string, unknown> = {
     ...(scenario.vars || {}),
+    ...(varsOverride || {}),
     env: { ...process.env },
     state: loadState(project),
     steps: {} as Record<string, unknown>,

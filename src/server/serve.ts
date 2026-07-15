@@ -85,6 +85,24 @@ function resolveScenario(file: unknown): string | null {
   return abs;
 }
 
+/**
+ * 解析「覆盖变量」textarea 的原始 YAML 文本：兼容整段粘贴 `vars:` 块（取 `.vars`）与只粘贴里面缩进
+ * 键值行（整个文档就是一个 mapping）两种写法。空文本返回 {}；语法错误或非 mapping 抛错（400 用）。
+ */
+function parseVarsYaml(text: string): Record<string, unknown> {
+  // 注意：不能对整段文本做 .trim() 再解析 —— 会只削掉首行的前导空格，破坏与后续行的相对缩进导致误报语法错误
+  if (!text || !text.trim()) return {};
+  const doc = yaml.load(text);
+  if (doc && typeof doc === 'object' && !Array.isArray(doc)) {
+    const obj = doc as Record<string, unknown>;
+    if (obj.vars && typeof obj.vars === 'object' && !Array.isArray(obj.vars)) {
+      return obj.vars as Record<string, unknown>;
+    }
+    return obj;
+  }
+  throw new Error('覆盖变量需是 YAML 映射（key: value），不能是数组或标量');
+}
+
 function sendJson(res: http.ServerResponse, code: number, obj: unknown): void {
   const body = JSON.stringify(obj);
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -193,10 +211,22 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   if (method === 'POST' && p === '/api/run') {
     try {
-      const body = (await readJsonBody(req)) as { project?: string; env?: string; file?: string };
+      const body = (await readJsonBody(req)) as {
+        project?: string;
+        env?: string;
+        file?: string;
+        varsYaml?: string;
+      };
       const abs = resolveScenario(body.file);
       if (!abs) {
         sendJson(res, 400, { error: `非法或不存在的场景文件: ${body.file ?? ''}` });
+        return;
+      }
+      let varsOverride: Record<string, unknown>;
+      try {
+        varsOverride = parseVarsYaml(body.varsYaml || '');
+      } catch (e) {
+        sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) });
         return;
       }
       let cfg;
@@ -220,7 +250,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       await invokeHook(hooks, 'beforeRun', ctx);
       const catalog = await loadCatalog(cfg.projectDir);
       const scenario = loadScenario(abs);
-      const report = await runScenario(client, scenario, catalog, cfg.project);
+      const report = await runScenario(client, scenario, catalog, cfg.project, varsOverride);
       ctx.state = loadState(cfg.project);
       await invokeHook(hooks, 'afterRun', ctx);
       sendJson(res, 200, {

@@ -41,11 +41,11 @@ cp scenarios/example/.env.example scenarios/example/.env  # 每项目一份密�
 ```bash
 pnpm start list                                           # 查看项目、接口目录 + 现有场景
 pnpm start provision [--project <name>]                   # 跑该项目 provision.yaml 一键铺底 -> 写 .state/<project>/provision.json
-pnpm start run [--project <name>] scenarios/<project>/xxx.yaml [more...]  # 执行用例（省略 --project 时从场景路径推断项目）
+pnpm start run [--project <name>] [--var k=v ...] scenarios/<project>/xxx.yaml [more...]  # 执行用例（省略 --project 时从场景路径推断项目）
 pnpm start serve [--port 8787]                           # 前端控制台：浏览器选场景跑用例（项目按场景路径自动推断，只绑 127.0.0.1）
 pnpm typecheck                                            # 类型检查
 ```
-> 首次 `provision` 若 404，是网关前缀问题，见 [docs/notes/api-prefix-calibration.md](docs/notes/api-prefix-calibration.md)。鉴权失败见 [docs/notes/auth-and-signing.md](docs/notes/auth-and-signing.md)。多项目/多环境细节见 [docs/notes/projects.md](docs/notes/projects.md)。
+> 首次 `provision` 若 404，是网关前缀问题，见 [docs/notes/api-prefix-calibration.md](docs/notes/api-prefix-calibration.md)。鉴权失败见 [docs/notes/auth-and-signing.md](docs/notes/auth-and-signing.md)。多项目/多环境细节见 [docs/notes/projects.md](docs/notes/projects.md)。临时换个值跑一次不想改 YAML，见 [docs/notes/var-overrides.md](docs/notes/var-overrides.md)（CLI `--var k=v`，web 控制台可直接粘贴 YAML）。
 
 ### 添加接口
 接口目录**按项目**：在 `scenarios/<project>/catalog.ts` 导出 `API_CATALOG`（apiKey→ApiDef，`ApiDef` 类型从 `../../src/catalog/types-def.js` import），同目录 `types.ts` 补请求/响应类型（对齐后端 DTO），再写场景验证。项目无 `catalog.ts` 时回退引擎内置示例基座（`src/catalog/apis.ts`）。完整步骤走 `/add-endpoint`；从 OpenAPI/文档批量生成走 `/gen-api-example`。
@@ -94,7 +94,7 @@ steps:
 ```
 
 ### 变量与插值 `${...}`
-按点路径解析，可用：`${varName}`（vars 或 `save` 的顶层变量）、`${state.xxx}`（`.state/<project>/provision.json` 的铺底结果）、`${steps.<id>.data.xxx}`（同场景已执行步骤响应）、`${env.XXX}`（环境变量，勿写死密钥）。字符串整体是 `"${path}"` 时替换为解析出的**原始值**（可为对象/数组/数字）。
+按点路径解析，可用：`${varName}`（vars 或 `save` 的顶层变量）、`${state.xxx}`（`.state/<project>/provision.json` 的铺底结果）、`${steps.<id>.data.xxx}`（同场景已执行步骤响应）、`${env.XXX}`（环境变量，勿写死密钥）。字符串整体是 `"${path}"` 时替换为解析出的**原始值**（可为对象/数组/数字）。调用时可临时覆盖 `vars`（不改文件）：CLI 用 `--var k=v`，web 控制台直接粘贴 YAML，见 [docs/notes/var-overrides.md](docs/notes/var-overrides.md)。
 
 ### 断言 DSL（对响应 `{code,message,data,httpStatus}` 求值）
 `code == 200`、`data.successCount == 1`、`data.resourceId != null`、`message contains 成功`、`data.x !contains 失败`；单独路径 `data.resourceId` 即真值判断。点路径示例 `data.successData.0.resourceId`。

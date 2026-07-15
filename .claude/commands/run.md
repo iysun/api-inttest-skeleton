@@ -13,6 +13,7 @@ allowed-tools: Bash, PowerShell, Read, Edit, Grep, Glob
 ## 运行
 - 铺底：`pnpm start provision --project <name>`（跑该项目 `scenarios/<project>/provision.yaml`）
 - 单/多用例：`pnpm start run [--project <name>] scenarios/<project>/<file>.yaml [more.yaml ...]`（省略 `--project` 时从场景路径推断项目）
+- 临时换个值跑一次、不想改 YAML：加 `--var k=v`（可重复），如 `pnpm start run scenarios/<project>/<file>.yaml --var bizNo=IT-001`，覆盖优先级高于 YAML 里的 `vars`，详见 [docs/notes/var-overrides.md](../../docs/notes/var-overrides.md)
 - 排查鉴权：在该项目的 `scenarios/<project>/.env` 设 `DEBUG_SIGN=1`，会打印每个请求的鉴权摘要与内容（脱敏）。
 
 ## 修复循环（核心）
