@@ -72,22 +72,37 @@
   /* 项目分组：每个目录一段，段间加分隔线 + 段内首缩进，凸显不同项目的边界 */
   .sidebar .proj-group + .proj-group { border-top: 1px solid var(--ctp-sidebar-border); }
   .sidebar .proj-group { padding-bottom: .35rem; }
-  /* 分组标题：吸顶、独立底色的小节条 + 左侧 accent 竖条，滚动时始终标明「当前在哪个项目」 */
+  /* 分组标题：吸顶、独立底色的小节条 + 左侧 accent 竖条，滚动时始终标明「当前在哪个项目」；
+     两行布局：项目名（大写）/ baseUrl（原样），右侧凭据⚠ + 场景数 */
   .sidebar .dir {
     position: sticky; top: 0; z-index: 2;
     display: flex; align-items: center; gap: .4rem;
     width: 100%; text-align: left; cursor: pointer;
-    font-size: .72rem; letter-spacing: .06em; font-weight: 600;
     color: var(--bs-secondary-color) !important;
     background: var(--ctp-titlebar-bg);
     border: 0; border-bottom: 1px solid var(--ctp-sidebar-border);
     box-shadow: inset 3px 0 0 var(--ctp-accent);
   }
   .sidebar .dir:hover { color: var(--bs-body-color) !important; }
+  .sidebar .dir.dir-active { box-shadow: inset 3px 0 0 var(--ctp-accent), inset 0 0 0 100vmax rgba(137,180,250,.06); }
   .sidebar .dir .caret { font-size: .8rem; }
   .sidebar .dir[aria-expanded="false"] .caret { transform: rotate(-90deg); }
+  .sidebar .dir .dir-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .05rem; }
+  .sidebar .dir .dir-title {
+    display: flex; align-items: center; gap: .35rem;
+    font-size: .72rem; letter-spacing: .06em; font-weight: 600; color: var(--bs-body-color);
+  }
+  .sidebar .dir .dir-base {
+    font-size: .66rem; font-weight: 400; letter-spacing: 0; text-transform: none;
+    color: var(--bs-secondary-color); opacity: .85;
+  }
+  .sidebar .dir .dir-flag {
+    flex-shrink: 0; font-size: .6rem; font-weight: 600; letter-spacing: 0;
+    color: var(--ctp-accent); border: 1px solid var(--ctp-accent); border-radius: .2rem; padding: 0 .25rem;
+  }
+  .sidebar .dir .dir-warn { flex-shrink: 0; color: var(--bs-danger); font-size: .82rem; }
   .sidebar .dir .proj-count {
-    margin-left: auto; font-weight: 400; letter-spacing: 0;
+    flex-shrink: 0; font-weight: 400; letter-spacing: 0;
     color: var(--bs-secondary-color); opacity: .7;
   }
 
@@ -155,8 +170,7 @@
       <option value="light">浅色</option>
       <option value="dark">深色</option>
     </select>
-    <span v-if="selectedFile" class="text-muted small">项目 <span class="fw-semibold">{{ curProjectName || '—' }}</span> {{ projectNote }}</span>
-    <button class="btn btn-primary btn-sm" :disabled="!canRun" @click="run">运行</button>
+    <button class="btn btn-primary btn-sm" :disabled="!canRun" @click="run" :title="runHint">运行</button>
   </div>
 </nav>
 <div class="app">
@@ -166,16 +180,28 @@
     <div v-else-if="!scenarios.length" class="p-3 text-muted small">无场景文件</div>
     <div v-else>
       <div v-for="g in groupedScenarios" :key="g.dir" class="proj-group">
-        <button type="button" class="dir px-3 py-2 text-uppercase"
+        <button type="button" class="dir px-3 py-2"
+          :class="{ 'dir-active': g.files.some((f) => f.file === selectedFile) }"
           :aria-expanded="isExpanded(g.dir)" @click="toggleDir(g.dir)">
           <span class="caret">▾</span>
-          <span class="text-truncate">{{ g.dir }}/</span>
+          <span class="dir-meta">
+            <span class="dir-title text-uppercase text-truncate" :title="g.project || g.dir">
+              {{ g.project || g.dir }}
+              <span v-if="g.proj && g.proj.isDefault" class="dir-flag">默认</span>
+            </span>
+            <span v-if="g.proj" class="dir-base text-truncate"
+              :title="(g.proj.baseUrl || '(未配 baseUrl)') + g.proj.apiPrefix">
+              {{ displayUrl(g.proj.baseUrl) || '(未配 baseUrl)' }}{{ g.proj.apiPrefix }}
+            </span>
+          </span>
+          <span v-if="g.proj && !g.proj.hasCreds" class="dir-warn" title="缺少凭据 scenarios/…/.env">⚠</span>
           <span class="proj-count">{{ g.files.length }}</span>
         </button>
         <div v-show="isExpanded(g.dir)" class="list-group list-group-flush">
           <button v-for="f in g.files" :key="f.file" type="button"
             class="list-group-item list-group-item-action py-2 small"
-            :class="{ active: f.file === selectedFile }" @click="selectFile(f.file)">
+            :class="{ active: f.file === selectedFile }"
+            :title="f.base + (f.name ? '\n' + f.name : '')" @click="selectFile(f.file)">
             <div class="text-truncate">{{ f.base }}</div>
             <div v-if="f.name" class="scen-desc text-truncate">{{ f.name }}</div>
           </button>
@@ -318,22 +344,31 @@ const app = createApp({
       return (f && f.project) || defaultProject.value || '';
     });
     const curProject = computed(() => projects.value.find((p) => p.name === curProjectName.value));
-    const projectNote = computed(() => {
-      const p = curProject.value;
-      return p ? `→ ${p.baseUrl}${p.apiPrefix}${p.hasCreds ? '' : '（缺 scenarios/' + p.name + '/.env）'}` : '';
-    });
     const canRun = computed(() => !!selectedFile.value && !!curProject.value && !!curProject.value.hasCreds && !running.value);
     const canCurl = computed(() => !!curProject.value && !!curProject.value.hasCreds);
+    // 运行按钮 hover 提示：未选场景 / 缺凭据时说明原因（去掉 navbar 指示后的可发现性补偿）
+    const runHint = computed(() => {
+      if (!selectedFile.value) return '先在左侧选择一个场景';
+      const p = curProject.value;
+      if (!p) return '无法确定项目';
+      if (!p.hasCreds) return `项目 ${p.name} 缺凭据（scenarios/${p.name}/.env）`;
+      return `运行 → ${p.name}`;
+    });
     const passedCount = computed(() => (report.value ? report.value.steps.filter((s) => s.ok).length : 0));
+    // baseUrl 显示助手：去掉 http(s):// 前缀以少占位（完整地址放 title 提示里）
+    function displayUrl(u) { return (u || '').replace(/^https?:\/\//, ''); }
     const groupedScenarios = computed(() => {
       const groups = {};
       for (const f of scenarios.value) {
         const i = f.file.lastIndexOf('/');
         const dir = i >= 0 ? f.file.slice(0, i) : '.';
         const base = i >= 0 ? f.file.slice(i + 1) : f.file;
-        (groups[dir] = groups[dir] || []).push({ file: f.file, name: f.name, base });
+        (groups[dir] = groups[dir] || []).push({ file: f.file, name: f.name, base, project: f.project });
       }
-      return Object.keys(groups).sort().map((dir) => ({ dir, files: groups[dir] }));
+      return Object.keys(groups).sort().map((dir) => {
+        const project = (groups[dir].find((x) => x.project) || {}).project;
+        return { dir, project, proj: projects.value.find((p) => p.name === project), files: groups[dir] };
+      });
     });
 
     function isExpanded(dir) { return expandedDirs.value.has(dir); }
@@ -441,8 +476,8 @@ const app = createApp({
     return {
       theme, projects, defaultProject, curProjectName, scenarios, scenariosLoading, scenariosError,
       selectedFile, selectedContent, previewLoading, previewError, report, runInfo, runMs,
-      running, errorMsg, projectNote, canRun, canCurl, passedCount, groupedScenarios,
-      isExpanded, toggleDir,
+      running, errorMsg, runHint, canRun, canCurl, passedCount, groupedScenarios,
+      isExpanded, toggleDir, displayUrl,
       selectFile, run, pretty, prettyReq, toCurl, yamlCurl,
     };
   },
