@@ -30,12 +30,14 @@ export const bearerAuth: AuthStrategy = {
 
 /**
  * HMAC 家族默认实现：对确切发送字节做 HMAC-SHA256 → hex，随 projectId 一并注入头。
- * ↓ 默认沿用天印网关头名/口径；换网关时改这两个头名与 signContent 的算法即可。
+ * ↓ 用中性头名 x-project-id / x-signature 作为骨架默认（不绑定任何具体网关）。
+ * 具体网关在 scenarios/<项目|组>/auth.ts 里导出自己的 AUTH_STRATEGY 覆盖本默认
+ * （由 src/client/auth-loader.ts 逐级向上加载）。
  */
 export const hmacAuth: AuthStrategy = {
   headers: (content, cfg) => ({
-    'x-timevale-project-id': cfg.projectId,
-    'x-timevale-signature': signContent(cfg.projectSecret, content),
+    'x-project-id': cfg.projectId,
+    'x-signature': signContent(cfg.projectSecret, content),
   }),
 };
 

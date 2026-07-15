@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ApiClient } from '../client/http.js';
+import { createApiClient } from '../client/http.js';
 import { loadConfig } from '../config.js';
 import { loadScenario, runScenario } from '../runner/runner.js';
 import { loadCatalog } from '../catalog/loader.js';
@@ -17,7 +17,7 @@ import { loadHooks, invokeHook, type HookContext } from '../hooks.js';
 export async function provision(scenarioFile?: string, projectName?: string): Promise<boolean> {
   const cfg = loadConfig({ project: projectName, requireCreds: true });
   console.error(`项目: ${cfg.project}  ->  ${cfg.baseUrl}${cfg.apiPrefix}`);
-  const client = new ApiClient(cfg);
+  const client = await createApiClient(cfg);
 
   const file = scenarioFile ?? path.join(cfg.projectDir, 'provision.yaml');
   const hooks = await loadHooks(cfg.projectDir);

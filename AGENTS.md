@@ -61,7 +61,7 @@ YAML 用 `api: <apiKey>` 引用，runner 从**当前项目的 catalog** 解析�
 | `resource.get` | GET `/v1/resources/get` | query `resourceId` | `data` |
 | `resource.batchCreate` | POST `/v1/resources/batchCreate` | **数组** | `data.successData[].resourceId` |
 
-鉴权由客户端按项目的 `authType` 自动处理，YAML 无需关心（原理见 [docs/notes/auth-and-signing.md](docs/notes/auth-and-signing.md)）。响应统一 `{ code, message, data }`，成功码见 [docs/notes/response-envelope.md](docs/notes/response-envelope.md)（骨架默认 `code == 200`，按项目改）。
+鉴权由客户端按项目的 `authType` 自动处理，YAML 无需关心（原理见 [docs/notes/auth-and-signing.md](docs/notes/auth-and-signing.md)）。骨架内置 `none`/`bearer`/`hmac`（中性头名 `x-project-id`/`x-signature`），**具体网关的头名/口径不写进骨架**：在 `scenarios/<项目|组>/auth.ts` 导出 `AUTH_STRATEGY` 覆盖（加载机制同 `catalog.ts`，逐级向上 walk、组内共享；如天印头名落在 `scenarios/tianyin/auth.ts`）。响应统一 `{ code, message, data }`，成功码见 [docs/notes/response-envelope.md](docs/notes/response-envelope.md)（骨架默认 `code == 200`，按项目改）。
 
 ## YAML 场景规范
 

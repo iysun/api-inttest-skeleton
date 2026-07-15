@@ -8,7 +8,7 @@ import {
   listProjectsDetailed,
   listProjectNames,
 } from './config.js';
-import { ApiClient } from './client/http.js';
+import { createApiClient } from './client/http.js';
 import { loadCatalog } from './catalog/loader.js';
 import { loadScenario, runScenario } from './runner/runner.js';
 import { printReport } from './runner/report.js';
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
       }
       const cfg = loadConfig({ project, requireCreds: true });
       console.error(`项目: ${cfg.project}  ->  ${cfg.baseUrl}${cfg.apiPrefix}`);
-      const client = new ApiClient(cfg);
+      const client = await createApiClient(cfg);
       const catalog = await loadCatalog(cfg.projectDir);
 
       const hooks = await loadHooks(cfg.projectDir);

@@ -11,7 +11,7 @@ import {
   projectDirPath,
   resolveProjectName,
 } from '../config.js';
-import { ApiClient } from '../client/http.js';
+import { createApiClient } from '../client/http.js';
 import { loadScenario, runScenario, describeScenarioRequests } from '../runner/runner.js';
 import { loadCatalog } from '../catalog/loader.js';
 import { loadState } from '../state.js';
@@ -185,7 +185,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return;
     }
     const catalog = await loadCatalog(cfg.projectDir);
-    const steps = describeScenarioRequests(new ApiClient(cfg), loadScenario(abs), catalog, cfg.project);
+    const client = await createApiClient(cfg);
+    const steps = describeScenarioRequests(client, loadScenario(abs), catalog, cfg.project);
     sendJson(res, 200, { project: cfg.project, file, steps });
     return;
   }
@@ -206,7 +207,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) });
         return;
       }
-      const client = new ApiClient(cfg);
+      const client = await createApiClient(cfg);
       const hooks = await loadHooks(cfg.projectDir);
       const ctx: HookContext = {
         config: cfg,
