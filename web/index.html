@@ -68,7 +68,28 @@
   .app { display: flex; height: calc(100vh - 3.5rem); }
   .sidebar { width: 330px; flex-shrink: 0; overflow: auto; border-right: 1px solid var(--ctp-sidebar-border); background: var(--ctp-sidebar-bg); }
   #out { flex: 1; overflow: auto; padding: 1.25rem; }
-  .sidebar .dir { font-size: .72rem; letter-spacing: .06em; color: var(--bs-secondary-color) !important; }
+
+  /* 项目分组：每个目录一段，段间加分隔线 + 段内首缩进，凸显不同项目的边界 */
+  .sidebar .proj-group + .proj-group { border-top: 1px solid var(--ctp-sidebar-border); }
+  .sidebar .proj-group { padding-bottom: .35rem; }
+  /* 分组标题：吸顶、独立底色的小节条 + 左侧 accent 竖条，滚动时始终标明「当前在哪个项目」 */
+  .sidebar .dir {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; align-items: center; gap: .4rem;
+    width: 100%; text-align: left; cursor: pointer;
+    font-size: .72rem; letter-spacing: .06em; font-weight: 600;
+    color: var(--bs-secondary-color) !important;
+    background: var(--ctp-titlebar-bg);
+    border: 0; border-bottom: 1px solid var(--ctp-sidebar-border);
+    box-shadow: inset 3px 0 0 var(--ctp-accent);
+  }
+  .sidebar .dir:hover { color: var(--bs-body-color) !important; }
+  .sidebar .dir .caret { font-size: .8rem; }
+  .sidebar .dir[aria-expanded="false"] .caret { transform: rotate(-90deg); }
+  .sidebar .dir .proj-count {
+    margin-left: auto; font-weight: 400; letter-spacing: 0;
+    color: var(--bs-secondary-color); opacity: .7;
+  }
 
   /* 标题栏 */
   .navbar { background: var(--ctp-titlebar-bg) !important; border-bottom-color: var(--ctp-titlebar-border) !important; }
@@ -148,9 +169,14 @@
     <div v-else-if="scenariosError" class="p-3 text-danger small">场景加载失败: {{ scenariosError }}</div>
     <div v-else-if="!scenarios.length" class="p-3 text-muted small">无场景文件</div>
     <div v-else>
-      <template v-for="g in groupedScenarios" :key="g.dir">
-        <div class="dir px-3 pt-3 pb-1 text-muted fw-semibold text-uppercase">{{ g.dir }}/</div>
-        <div class="list-group list-group-flush">
+      <div v-for="g in groupedScenarios" :key="g.dir" class="proj-group">
+        <button type="button" class="dir px-3 py-2 text-uppercase"
+          :aria-expanded="isExpanded(g.dir)" @click="toggleDir(g.dir)">
+          <span class="caret">▾</span>
+          <span class="text-truncate">{{ g.dir }}/</span>
+          <span class="proj-count">{{ g.files.length }}</span>
+        </button>
+        <div v-show="isExpanded(g.dir)" class="list-group list-group-flush">
           <button v-for="f in g.files" :key="f.file" type="button"
             class="list-group-item list-group-item-action py-2 small"
             :class="{ active: f.file === selectedFile }" @click="selectFile(f.file)">
@@ -158,7 +184,7 @@
             <div v-if="f.name" class="scen-desc text-truncate">{{ f.name }}</div>
           </button>
         </div>
-      </template>
+      </div>
     </div>
   </aside>
   <main id="out">
@@ -279,6 +305,7 @@ const app = createApp({
     const scenarios = ref([]);
     const scenariosLoading = ref(true);
     const scenariosError = ref('');
+    const expandedDirs = ref(new Set()); // 默认全部折叠；点标题展开对应项目分组
     const selectedFile = ref(null);
     const selectedContent = ref('');
     const previewLoading = ref(false);
@@ -307,6 +334,13 @@ const app = createApp({
       }
       return Object.keys(groups).sort().map((dir) => ({ dir, files: groups[dir] }));
     });
+
+    function isExpanded(dir) { return expandedDirs.value.has(dir); }
+    function toggleDir(dir) {
+      const next = new Set(expandedDirs.value); // 重建 Set 触发响应式更新
+      next.has(dir) ? next.delete(dir) : next.add(dir);
+      expandedDirs.value = next;
+    }
 
     async function loadProjects() {
       try {
@@ -408,6 +442,7 @@ const app = createApp({
       theme, projects, defaultProject, curProjectName, scenarios, scenariosLoading, scenariosError,
       selectedFile, selectedContent, previewLoading, previewError, report, runInfo, runMs,
       running, errorMsg, projectNote, canRun, canCurl, passedCount, groupedScenarios,
+      isExpanded, toggleDir,
       selectFile, run, pretty, prettyReq, toCurl, yamlCurl,
     };
   },
