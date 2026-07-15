@@ -1,9 +1,15 @@
 #!/usr/bin/env -S npx tsx
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig, ROOT_DIR, SCENARIOS_DIR, listProjectsDetailed } from './config.js';
+import {
+  loadConfig,
+  ROOT_DIR,
+  SCENARIOS_DIR,
+  listProjectsDetailed,
+  listProjectNames,
+} from './config.js';
 import { ApiClient } from './client/http.js';
-import { API_CATALOG } from './catalog/apis.js';
+import { loadCatalog } from './catalog/loader.js';
 import { loadScenario, runScenario } from './runner/runner.js';
 import { printReport } from './runner/report.js';
 import { provision } from './provision/provision.js';
@@ -30,12 +36,22 @@ function extractProject(args: string[]): { project?: string; rest: string[] } {
   return { project, rest };
 }
 
-/** 从场景文件绝对路径推断所属项目：scenarios/<project>/... 的第一段 */
+/**
+ * 从场景文件绝对路径推断所属项目：对照已发现的项目名（支持 depth-2 组 `<group>/<env>`），
+ * 取按路径 segment 匹配的最长项目名。scenarios/tianyin/dev/x.yaml → tianyin/dev。
+ */
 function inferProject(absFile: string): string | undefined {
   const rel = path.relative(SCENARIOS_DIR, absFile);
   if (rel.startsWith('..')) return undefined;
-  const seg = rel.split(path.sep)[0];
-  return seg || undefined;
+  const segs = rel.split(path.sep);
+  let best: string | undefined;
+  for (const name of listProjectNames()) {
+    const nsegs = name.split('/');
+    if (nsegs.length <= segs.length && nsegs.every((s, i) => s === segs[i])) {
+      if (!best || nsegs.length > best.split('/').length) best = name;
+    }
+  }
+  return best;
 }
 
 async function main(): Promise<void> {
@@ -69,6 +85,7 @@ async function main(): Promise<void> {
       const cfg = loadConfig({ project, requireCreds: true });
       console.error(`项目: ${cfg.project}  ->  ${cfg.baseUrl}${cfg.apiPrefix}`);
       const client = new ApiClient(cfg);
+      const catalog = await loadCatalog(cfg.projectDir);
 
       const hooks = await loadHooks(cfg.projectDir);
       const ctx: HookContext = {
@@ -84,7 +101,7 @@ async function main(): Promise<void> {
       let allOk = true;
       for (const f of files) {
         const scenario = loadScenario(f);
-        const report = await runScenario(client, scenario, cfg.project);
+        const report = await runScenario(client, scenario, catalog, cfg.project);
         printReport(report);
         allOk = allOk && report.ok;
       }
@@ -95,7 +112,7 @@ async function main(): Promise<void> {
       break;
     }
     case 'list': {
-      list();
+      await list();
       break;
     }
     case 'serve': {
@@ -125,9 +142,9 @@ async function main(): Promise<void> {
   }
 }
 
-function list(): void {
-  const { defaultProject, current, projects } = listProjectsDetailed();
-  console.log('\n可用项目 (scenarios/*/config.json):');
+async function list(): Promise<void> {
+  const { current, projects } = listProjectsDetailed();
+  console.log('\n可用项目 (scenarios/<project>/config.json；支持项目组 <group>/<env>):');
   if (!projects.length) console.log('  (无。在 scenarios/<name>/ 放 config.json 即成为一个项目)');
   for (const p of projects) {
     const flags = [p.isDefault ? '(default)' : '', p.name === current ? '←当前' : '']
@@ -136,15 +153,19 @@ function list(): void {
     const creds = p.hasCreds ? '凭据✔' : `凭据✘ (需 scenarios/${p.name}/.env)`;
     const hooks = p.hasHooks ? ' hooks✔' : '';
     console.log(
-      `  ${p.name.padEnd(14)} ${p.authType.padEnd(6)} ${p.baseUrl || '(未配 baseUrl)'}  ${creds}${hooks}${flags ? '  ' + flags : ''}`
+      `  ${p.name.padEnd(16)} ${p.authType.padEnd(6)} ${p.baseUrl || '(未配 baseUrl)'}  ${creds}${hooks}${flags ? '  ' + flags : ''}`
     );
   }
   console.log('  用 --project <name>（或 --env）切换，或设 TY_PROJECT。');
 
-  console.log('\n可用接口 (apiKey，全局共享):');
-  for (const [key, def] of Object.entries(API_CATALOG)) {
-    console.log(`  ${key.padEnd(28)} ${def.method.padEnd(4)} ${def.path}`);
-    console.log(`  ${''.padEnd(28)} ${def.summary}`);
+  console.log('\n可用接口 (按项目 catalog；项目无 catalog.ts 时回退引擎示例基座):');
+  for (const p of projects) {
+    const catalog = await loadCatalog(path.join(SCENARIOS_DIR, p.name));
+    console.log(`  [${p.name}]`);
+    for (const [key, def] of Object.entries(catalog)) {
+      console.log(`    ${key.padEnd(26)} ${def.method.padEnd(4)} ${(def.prefix ?? '') + def.path}`);
+      console.log(`    ${''.padEnd(26)} ${def.summary}`);
+    }
   }
 
   const files = collectYaml(SCENARIOS_DIR);

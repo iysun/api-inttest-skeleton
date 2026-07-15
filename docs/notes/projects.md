@@ -41,6 +41,16 @@ pnpm start list                                      # 看有哪些项目、缺�
 
 > Claude Code 下可用 `/create-env` 引导式完成以上步骤并跑通冒烟（Agent 只搭 `config.json` + `.env.example` 模板，密钥由你自填）。
 
+## 接口目录 catalog（按项目）
+YAML 用 `api: <apiKey>` 引用，runner 从**当前项目的 catalog** 解析。加载优先级（`src/catalog/loader.ts` 的 `loadCatalog`）：项目目录 `scenarios/<project>/catalog.ts` → 逐级向上到组根 `scenarios/<group>/catalog.ts` → 引擎内置示例基座 `src/catalog/apis.ts`（回退），第一个存在的整体生效。项目 catalog.ts 形如：
+```ts
+import type { ApiCatalog } from '../../src/catalog/types-def.js'; // 深度按挂载层级调整相对路径
+export const API_CATALOG: ApiCatalog = { 'foo.create': { method: 'POST', path: '/v1/foo/create', signed: true, summary: '...' } };
+```
+
+## 项目组（depth-2）：一套接口、多个环境
+若一个子目录自身没有 `config.json`、但其孙目录各有 `config.json`，它就是**项目组**，孙目录被发现为项目 `<group>/<env>`（如 `tianyin/stable`、`tianyin/dev`、`tianyin/test`）。同组各环境**共享**组根的 `catalog.ts`/`types.ts`/`docs`，各自独立 `config.json`/`.env`/`provision.yaml`/用例。用 `--project tianyin/dev` 或从路径推断。这既适合「同一套接口跑多个目标环境」，也便于把**整个组作为一个独立仓**维护（如放 GitLab），而引擎骨架单独维护（如 GitHub）。
+
 ## 项目钩子 hooks.ts
 `scenarios/<project>/hooks.ts` 可导出 `beforeProvision/afterProvision/beforeRun/afterRun`，在铺底/跑用例前后做该项目/环境专属定制：bearer 换取令牌（改 `ctx.config.token` 即刻生效）、前置准备数据、收尾清理等。`ctx` 含 `config/client/project/projectDir/state/log`，与后续请求共享同一 `config`/`client`。不需要就删掉该文件——`provision`/`run` 照常运行。
 

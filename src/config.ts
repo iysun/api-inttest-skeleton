@@ -69,17 +69,41 @@ function readProjectConfig(name: string): ProjectConfigFile {
   }
 }
 
-/** 扫描 scenarios 下每个含 config.json 的子目录，得到项目名列表 */
+/**
+ * 扫描 scenarios 下的项目（最多两层）：
+ * ① 直接子目录含 config.json → 项目名 = 目录名（如 `example`）；
+ * ② 否则该子目录作为「项目组」，其下每个含 config.json 的孙目录 → 项目 `<group>/<sub>`（如 `tianyin/dev`）。
+ * 项目名统一用 `/` 分隔（跨平台一致），projectDirPath 用 path.join 展开。
+ */
 export function listProjectNames(): string[] {
+  let entries: fs.Dirent[];
   try {
-    return fs
-      .readdirSync(SCENARIOS_DIR, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && fs.existsSync(projectConfigPath(d.name)))
-      .map((d) => d.name)
-      .sort();
+    entries = fs.readdirSync(SCENARIOS_DIR, { withFileTypes: true });
   } catch {
     return [];
   }
+  const names: string[] = [];
+  for (const d of entries) {
+    if (!d.isDirectory()) continue;
+    if (fs.existsSync(projectConfigPath(d.name))) {
+      names.push(d.name); // depth-1 项目
+      continue;
+    }
+    // depth-2：组目录（自身无 config.json）下寻找子项目
+    const groupDir = path.join(SCENARIOS_DIR, d.name);
+    let subs: fs.Dirent[];
+    try {
+      subs = fs.readdirSync(groupDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const s of subs) {
+      if (s.isDirectory() && fs.existsSync(path.join(groupDir, s.name, 'config.json'))) {
+        names.push(`${d.name}/${s.name}`);
+      }
+    }
+  }
+  return names.sort();
 }
 
 /** 解析项目名：显式 > TY_PROJECT/TY_ENV > default:true > 唯一项目 > 报错并列出可选 */

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { ApiClient } from '../client/http.js';
 import { loadConfig } from '../config.js';
 import { loadScenario, runScenario } from '../runner/runner.js';
+import { loadCatalog } from '../catalog/loader.js';
 import { printReport } from '../runner/report.js';
 import { loadState, saveState, stateFilePath } from '../state.js';
 import { loadHooks, invokeHook, type HookContext } from '../hooks.js';
@@ -38,7 +39,8 @@ export async function provision(scenarioFile?: string, projectName?: string): Pr
   }
 
   const scenario = loadScenario(file);
-  const report = await runScenario(client, scenario, cfg.project);
+  const catalog = await loadCatalog(cfg.projectDir);
+  const report = await runScenario(client, scenario, catalog, cfg.project);
   printReport(report);
 
   // 收集 exports 到该项目 state

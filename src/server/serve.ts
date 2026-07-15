@@ -7,10 +7,12 @@ import {
   SCENARIOS_DIR,
   loadConfigForProject,
   listProjectsDetailed,
+  listProjectNames,
   resolveProjectName,
 } from '../config.js';
 import { ApiClient } from '../client/http.js';
 import { loadScenario, runScenario, describeScenarioRequests } from '../runner/runner.js';
+import { loadCatalog } from '../catalog/loader.js';
 import { loadState } from '../state.js';
 import { loadHooks, invokeHook, type HookContext } from '../hooks.js';
 
@@ -18,12 +20,22 @@ const HOST = '127.0.0.1';
 const WEB_DIR = path.join(ROOT_DIR, 'web');
 const SCEN_DIR = SCENARIOS_DIR;
 
-/** 从场景文件绝对路径推断所属项目：scenarios/<project>/... 的第一段 */
+/**
+ * 从场景文件绝对路径推断所属项目：对照已发现项目名（支持 depth-2 组 `<group>/<env>`），
+ * 取按路径 segment 匹配的最长项目名。scenarios/tianyin/dev/x.yaml → tianyin/dev。
+ */
 function inferProject(abs: string): string | undefined {
   const rel = path.relative(SCEN_DIR, abs);
   if (rel.startsWith('..')) return undefined;
-  const seg = rel.split(path.sep)[0];
-  return seg || undefined;
+  const segs = rel.split(path.sep);
+  let best: string | undefined;
+  for (const name of listProjectNames()) {
+    const nsegs = name.split('/');
+    if (nsegs.length <= segs.length && nsegs.every((s, i) => s === segs[i])) {
+      if (!best || nsegs.length > best.split('/').length) best = name;
+    }
+  }
+  return best;
 }
 
 /** 容错读取场景 yaml 的顶层 name（解析失败/无 name 时返回 undefined，不影响整份列表） */
@@ -165,7 +177,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) });
       return;
     }
-    const steps = describeScenarioRequests(new ApiClient(cfg), loadScenario(abs), cfg.project);
+    const catalog = await loadCatalog(cfg.projectDir);
+    const steps = describeScenarioRequests(new ApiClient(cfg), loadScenario(abs), catalog, cfg.project);
     sendJson(res, 200, { project: cfg.project, file, steps });
     return;
   }
@@ -197,8 +210,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
         log: (m) => console.error(m),
       };
       await invokeHook(hooks, 'beforeRun', ctx);
+      const catalog = await loadCatalog(cfg.projectDir);
       const scenario = loadScenario(abs);
-      const report = await runScenario(client, scenario, cfg.project);
+      const report = await runScenario(client, scenario, catalog, cfg.project);
       ctx.state = loadState(cfg.project);
       await invokeHook(hooks, 'afterRun', ctx);
       sendJson(res, 200, {

@@ -28,7 +28,7 @@ pnpm typecheck
    - 内置 `none` / `bearer` / `hmac` 够用 → 只改 `config.json` 的 `authType` 即可；
    - 口径不同（头名/算法/加时间戳 nonce）→ 改 `src/client/auth.ts`（必要时 `src/client/sign.ts`），保持「对确切发送字节鉴权」不变量。详见 `docs/notes/auth-and-signing.md`。
    - 令牌需运行时换取/刷新 → 在项目 `scenarios/<project>/hooks.ts` 的 `beforeRun` 里换取并写 `ctx.config.token`。
-4. **换接口**：删掉 `src/catalog/apis.ts`、`src/catalog/types.ts` 里的 `resource.*` 示例，换成你的真实接口（可用 `/add-endpoint` 或 `/gen-api-example`）。
+4. **换接口**：在 `scenarios/<project>/catalog.ts` 导出你的真实 `API_CATALOG`（`ApiDef` 类型从 `../../src/catalog/types-def.js` import），同目录 `types.ts` 补 DTO 类型；不改引擎 `src/catalog/apis.ts`（那是回退基座）。可用 `/add-endpoint` 或 `/gen-api-example`。多环境共享同一套接口时把 `catalog.ts`/`types.ts` 放到项目组根 `scenarios/<group>/`。
 5. **改成功码**：若后端成功码不是 `200`（如 `0`），改 `src/client/http.ts` 的 `SUCCESS_CODE` 与场景断言。
 6. **写铺底**：把 `scenarios/<project>/provision.yaml` 换成本项目真正要预建的基础数据（固定前缀主键保幂等，`exports` 声明要复用的产物）。
 7. **跑绿**：`pnpm typecheck` → `pnpm start provision --project <name>` → 至少一条 `scenarios/<project>/*.yaml` `run` 全绿。
@@ -47,8 +47,9 @@ src/
     auth.ts            ★可插拔鉴权策略：none / bearer / hmac
     http.ts            带鉴权的 axios 客户端 + 响应归一（对确切发送字节鉴权）
   catalog/
-    apis.ts            API_CATALOG：apiKey → ApiDef（★项目相关，示例待替换）
-    types.ts           请求/响应 TS 类型（★项目相关，示例待替换）
+    types-def.ts       ApiDef / ApiCatalog / HttpMethod 类型（供各项目 catalog.ts import）
+    apis.ts            内置示例基座 API_CATALOG（项目无 catalog.ts 时回退）
+    loader.ts          按项目加载 catalog（项目目录→上层组→基座逐级解析）
   runner/              runner / context(插值) / assert(DSL) / report
   provision/           一键铺底编排（跑 scenarios/<project>/provision.yaml）
   server/serve.ts      本地控制台后端（web/ 前端）
@@ -58,6 +59,8 @@ scenarios/
     .env.example         该项目密钥模板（入库；.env 为实际密钥，gitignore）
     provision.yaml       该项目一键铺底（★示例待替换）
     hooks.ts             可选：该项目定制生命周期钩子
+    catalog.ts           可选：该项目接口目录 API_CATALOG（无则回退引擎示例基座）
+    types.ts             可选：该项目请求/响应 TS 类型
     example.yaml         样例场景
 docs/                  notes.md 索引 + notes/ 踩坑 + api/ 接口规范
 web/                   serve 用的前端控制台（内联 Bootstrap/Vue/highlight.js）

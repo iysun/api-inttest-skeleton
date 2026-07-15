@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import yaml from 'js-yaml';
 import { ApiClient, type UnifiedResult, SUCCESS_CODE } from '../client/http.js';
-import { getApiDef } from '../catalog/apis.js';
+import { getApiDef } from '../catalog/loader.js';
+import type { ApiCatalog } from '../catalog/types-def.js';
 import { interpolate, getPath } from './context.js';
 import { evalAssert, type AssertResult } from './assert.js';
 import { loadState } from '../state.js';
@@ -87,6 +88,7 @@ export interface ScenarioRequest {
 export function describeScenarioRequests(
   client: ApiClient,
   scenario: Scenario,
+  catalog: ApiCatalog,
   project?: string
 ): ScenarioRequest[] {
   const context: Record<string, unknown> = {
@@ -98,7 +100,7 @@ export function describeScenarioRequests(
 
   return scenario.steps.map((step, i) => {
     const id = step.id || `step${i + 1}`;
-    const def = getApiDef(step.api);
+    const def = getApiDef(catalog, step.api);
     const body = step.body === undefined ? undefined : interpolate(step.body, context);
     const params = step.params
       ? (interpolate(step.params, context) as Record<string, unknown>)
@@ -125,6 +127,7 @@ export function describeScenarioRequests(
 export async function runScenario(
   client: ApiClient,
   scenario: Scenario,
+  catalog: ApiCatalog,
   project?: string
 ): Promise<ScenarioReport> {
   // 上下文：vars 顶层展开 + env + state + steps
@@ -141,7 +144,7 @@ export async function runScenario(
   for (let i = 0; i < scenario.steps.length; i++) {
     const step = scenario.steps[i];
     const id = step.id || `step${i + 1}`;
-    const def = getApiDef(step.api);
+    const def = getApiDef(catalog, step.api);
 
     const body = step.body === undefined ? undefined : interpolate(step.body, context);
     const params = step.params

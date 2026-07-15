@@ -48,12 +48,12 @@ pnpm typecheck                                            # 类型检查
 > 首次 `provision` 若 404，是网关前缀问题，见 [docs/notes/api-prefix-calibration.md](docs/notes/api-prefix-calibration.md)。鉴权失败见 [docs/notes/auth-and-signing.md](docs/notes/auth-and-signing.md)。多项目/多环境细节见 [docs/notes/projects.md](docs/notes/projects.md)。
 
 ### 添加接口
-向 `src/catalog/apis.ts`（`API_CATALOG`）加一条 apiKey，`src/catalog/types.ts` 补请求/响应类型（对齐后端 DTO），再写场景验证。完整步骤走 `/add-endpoint`；从 OpenAPI/文档批量生成走 `/gen-api-example`。
+接口目录**按项目**：在 `scenarios/<project>/catalog.ts` 导出 `API_CATALOG`（apiKey→ApiDef，`ApiDef` 类型从 `../../src/catalog/types-def.js` import），同目录 `types.ts` 补请求/响应类型（对齐后端 DTO），再写场景验证。项目无 `catalog.ts` 时回退引擎内置示例基座（`src/catalog/apis.ts`）。完整步骤走 `/add-endpoint`；从 OpenAPI/文档批量生成走 `/gen-api-example`。
 > **多服务前缀**：若接口横跨多个网关服务前缀，`ApiDef.prefix` 可按接口覆盖项目的 `apiPrefix`（缺省走项目默认）。非默认前缀的接口必须显式声明 `prefix`，详见 [docs/notes/api-prefix-calibration.md](docs/notes/api-prefix-calibration.md)。
 
-## 接口目录（apiKey → 后端接口）
+## 接口目录（apiKey → 后端接口，按项目）
 
-YAML 用 `api: <apiKey>` 引用。字段见 `src/catalog/types.ts`。下表为骨架示例，接入项目后替换为真实接口：
+YAML 用 `api: <apiKey>` 引用，runner 从**当前项目的 catalog** 解析（`scenarios/<project>/catalog.ts` 的 `API_CATALOG`；项目组多环境共享则放组根 `scenarios/<group>/catalog.ts`，各环境子项目自动继承）。字段类型见 `src/catalog/types-def.ts`。下表为引擎内置示例基座（`src/catalog/apis.ts`，项目无 catalog.ts 时回退），接入项目后在项目 catalog.ts 里换成真实接口：
 
 | apiKey | 方法/路径 | 请求体 | 关键返回 |
 | --- | --- | --- | --- |
@@ -65,10 +65,11 @@ YAML 用 `api: <apiKey>` 引用。字段见 `src/catalog/types.ts`。下表为�
 
 ## YAML 场景规范
 
-### 目录约定（按项目分目录）
-每个 `scenarios/<project>/` 是一个项目，其下放该项目的用例 yaml。`<project>` = `--project` 名，目录内的 `config.json` 决定它是一个项目。跑用例时传完整路径 `scenarios/<project>/<file>.yaml`（省略 `--project` 时从该路径推断项目）。
+### 目录约定（按项目分目录，支持项目组）
+每个 `scenarios/<project>/` 是一个项目，其下放该项目的用例 yaml。目录内的 `config.json` 决定它是一个项目。跑用例时传完整路径 `scenarios/<project>/<file>.yaml`（省略 `--project` 时从该路径推断项目）。
 - **一键铺底** `scenarios/<project>/provision.yaml` 是该项目专属的铺底场景，`provision` 命令读它。
-- 新增/生成示例时落到对应 `scenarios/<project>/` 下，不要堆在 `scenarios/` 根。
+- **项目组（depth-2）**：若一个子目录自身没有 `config.json`、但其下的孙目录各有 `config.json`，则它是「项目组」，孙目录被发现为项目 `<group>/<env>`（如 `tianyin/stable`、`tianyin/dev`）。同组各环境**共享**组根的 `catalog.ts`/`types.ts`，各自独立 `config.json`/`.env`/`provision.yaml`/用例。这用于「同一套接口、多个目标环境」，也便于把整个组作为一个独立仓维护。
+- 新增/生成示例时落到对应项目目录下，不要堆在 `scenarios/` 根。
 
 ```yaml
 name: 场景名称

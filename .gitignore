@@ -6,3 +6,5 @@ node_modules/
 *.log
 dist/
 .claude/settings.local.json
+# client 项目（如天印）为独立 GitLab clone，挂在此路径，不入公共引擎库
+/scenarios/tianyin/
