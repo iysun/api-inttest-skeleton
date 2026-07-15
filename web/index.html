@@ -7,14 +7,20 @@
 <link rel="stylesheet" href="vendor/bootstrap/bootstrap.min.css" />
 <link rel="stylesheet" id="hljs-theme" href="vendor/highlightjs/catppuccin-latte.min.css" />
 <script>
-// 主题初始化（在首帧前设定，避免闪烁）：读取偏好 auto/light/dark → 定 data-bs-theme + 代码高亮主题
+/**
+ * 主题应用：算 dark → 设 data-bs-theme → 切 #hljs-theme href。
+ * 挂在 window 上，供下面的预初始化 IIFE 和后面 module 里的 Vue app 共用一份实现，避免两处重复。
+ */
+function applyThemeDom(pref) {
+  var dark = pref === 'dark' || (pref === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+  var l = document.getElementById('hljs-theme');
+  if (l) l.setAttribute('href', 'vendor/highlightjs/' + (dark ? 'catppuccin-mocha' : 'catppuccin-latte') + '.min.css');
+}
+// 主题初始化（在首帧前设定，避免闪烁）：读取偏好 auto/light/dark
 (function () {
   try {
-    var pref = localStorage.getItem('tyit-theme') || 'auto';
-    var dark = pref === 'dark' || (pref === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
-    var l = document.getElementById('hljs-theme');
-    if (l) l.setAttribute('href', 'vendor/highlightjs/' + (dark ? 'catppuccin-mocha' : 'catppuccin-latte') + '.min.css');
+    applyThemeDom(localStorage.getItem('tyit-theme') || 'auto');
   } catch (e) { /* localStorage 不可用时退回默认（浅色） */ }
 })();
 </script>
@@ -63,12 +69,14 @@
     --ctp-scrollbar-thumb: #bcc0cc; --ctp-scrollbar-thumb-hover: #acb0be;
   }
 
+  /* ===== 基础布局 ===== */
   html, body { height: 100%; }
   body { overflow: hidden; }
   .app { display: flex; height: calc(100vh - 3.5rem); }
   .sidebar { width: 330px; flex-shrink: 0; overflow: auto; border-right: 1px solid var(--ctp-sidebar-border); background: var(--ctp-sidebar-bg); }
   #out { flex: 1; overflow: auto; padding: 1.25rem; }
 
+  /* ===== 侧栏：项目分组 ===== */
   /* 项目分组：每个目录一段，段间加分隔线 + 段内首缩进，凸显不同项目的边界 */
   .sidebar .proj-group + .proj-group { border-top: 1px solid var(--ctp-sidebar-border); }
   .sidebar .proj-group { padding-bottom: .35rem; }
@@ -106,7 +114,7 @@
     color: var(--bs-secondary-color); opacity: .7;
   }
 
-  /* 标题栏 */
+  /* ===== 顶栏 ===== */
   .navbar { background: var(--ctp-titlebar-bg) !important; border-bottom-color: var(--ctp-titlebar-border) !important; }
   .navbar-brand { color: var(--bs-body-color); }
 
@@ -117,6 +125,7 @@
     background: var(--ctp-list-active-bg); color: var(--ctp-list-active-color); box-shadow: inset 2px 0 0 var(--ctp-accent);
   }
 
+  /* ===== 按钮 ===== */
   /* 运行按钮：Catppuccin 主按钮（accent 底 + 对比前景） */
   .btn-primary { --bs-btn-bg: var(--ctp-accent); --bs-btn-border-color: var(--ctp-accent);
     --bs-btn-hover-bg: var(--ctp-accent-hover); --bs-btn-hover-border-color: var(--ctp-accent-hover);
@@ -127,6 +136,12 @@
   /* 折叠标题按钮：hover 走 accent */
   .btn-link { --bs-btn-color: var(--bs-body-color); --bs-btn-hover-color: var(--ctp-accent); }
 
+  /* 运行按钮：移入 YAML 卡片头部右上；圆角与 ant-select 选择器统一为 6px */
+  .run-btn { border-radius: 6px; }
+  /* flex 子项截断辅助：让卡片标题在头部可省略号截断（Bootstrap 无内置 min-w-0） */
+  .min-w-0 { min-width: 0; }
+
+  /* ===== ant-select 组件 ===== */
   /* Ant-Design 风格下拉（自定义 ant-select 组件，替代原生 select/option）：
      选择器方框 + 浮层圆角面板 + 轻投影 + 选项 hover/选中态 + 收起箭头旋转，深浅主题自适配。
      原生 <option> 列表由 OS 渲染、无法定制圆角/投影/悬浮态，故整体用组件重写。 */
@@ -175,26 +190,16 @@
   .ant-slide-enter-active, .ant-slide-leave-active { transition: opacity .18s ease, transform .18s ease; transform-origin: top center; }
   .ant-slide-enter-from, .ant-slide-leave-to { opacity: 0; transform: scaleY(.86) translateY(-4px); }
 
-  /* 运行按钮：移入 YAML 卡片头部右上；圆角与 ant-select 选择器统一为 6px */
-  .run-btn { border-radius: 6px; }
-  /* flex 子项截断辅助：让卡片标题在头部可省略号截断（Bootstrap 无内置 min-w-0） */
-  .min-w-0 { min-width: 0; }
-
+  /* ===== 徽章 ===== */
   /* 通行/失败徽章：Catppuccin 语义底 + 对比前景（避免浅色 pastel 上白字看不清） */
   .text-bg-success { background-color: var(--bs-success) !important; color: var(--ctp-on-accent) !important; }
   .text-bg-danger { background-color: var(--bs-danger) !important; color: var(--ctp-on-accent) !important; }
 
+  /* ===== code-block 组件 ===== */
   /* 代码块：编辑器底色（面板里嵌编辑器的层次） */
   pre.yaml { font: .78rem/1.55 "SFMono-Regular", Consolas, "Cascadia Code", monospace; background: var(--ctp-editor-bg);
     padding: .75rem 1rem; margin: 0; white-space: pre; overflow: auto; }
   pre.yaml code.hljs { background: transparent; padding: 0; }
-
-  [v-cloak] { display: none; }
-  .btn[aria-expanded="false"] .caret { transform: rotate(-90deg); }
-  .caret { display: inline-block; transition: transform .15s; }
-  .assert-ok { color: var(--bs-secondary-color); }
-  .assert-no { color: var(--bs-danger); }
-  .scen-desc { font-size: .72rem; color: var(--bs-secondary-color); margin-top: .1rem; }
 
   /* 代码块复制动作：右上角 icon */
   .code-wrap { position: relative; }
@@ -205,7 +210,15 @@
   .code-copy-btn:hover { color: var(--ctp-accent); border-color: var(--ctp-accent); }
   .code-copy-btn svg { width: .85rem; height: .85rem; }
 
-  /* 细滚动条 */
+  /* ===== 杂项状态 ===== */
+  [v-cloak] { display: none; }
+  .btn[aria-expanded="false"] .caret { transform: rotate(-90deg); }
+  .caret { display: inline-block; transition: transform .15s; }
+  .assert-ok { color: var(--bs-secondary-color); }
+  .assert-no { color: var(--bs-danger); }
+  .scen-desc { font-size: .72rem; color: var(--bs-secondary-color); margin-top: .1rem; }
+
+  /* ===== 滚动条 ===== */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: var(--ctp-scrollbar-thumb); border-radius: 0; }
   ::-webkit-scrollbar-thumb:hover { background: var(--ctp-scrollbar-thumb-hover); }
@@ -316,7 +329,11 @@
 
 <script src="vendor/highlightjs/highlight.min.js"></script>
 <script src="vendor/vue/vue.global.prod.js"></script>
-<script>
+<script type="module">
+import CollapseCard from './components/collapse-card.js';
+import CodeBlock from './components/code-block.js';
+import AntSelect from './components/ant-select.js';
+
 const { createApp, ref, computed, watch, onMounted } = Vue;
 
 /** JSON/字符串统一转文本，喂给 v-highlight */
@@ -325,37 +342,15 @@ function pretty(v) {
   try { return typeof v === 'string' ? v : JSON.stringify(v, null, 2); } catch { return String(v); }
 }
 /** v-highlight 指令的着色实现：独占 <code> 内容，避免与 Vue 争夺 DOM */
-function hlEl(el, val) {
+function highlightCodeEl(el, val) {
   const { code, lang } = val || {};
   el.textContent = code || '';
   el.className = 'language-' + (lang || 'yaml');
   el.removeAttribute('data-highlighted');
   if (window.hljs) hljs.highlightElement(el);
 }
-/** 复制文本到剪贴板：优先 Clipboard API（127.0.0.1 为安全上下文），失败回退 execCommand */
-async function copyText(text) {
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch (e) { /* 落到 execCommand 回退 */ }
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
-  } catch (e) {
-    return false;
-  }
-}
 /** shell 单引号转义：' -> '\'' */
-function shq(s) { return String(s).replace(/'/g, `'\\''`); }
+function shellQuote(s) { return String(s).replace(/'/g, `'\\''`); }
 /** request 屏显：只展示 method/url/params/body，不含 headers（签名不上屏，仅随 curl 复制） */
 function prettyReq(req) {
   if (!req) return '';
@@ -365,17 +360,18 @@ function prettyReq(req) {
 function toCurl(req) {
   if (!req) return '';
   const method = req.method || 'GET';
-  const lines = [`curl -X ${method} '${shq(req.url || '')}'`];
+  const lines = [`curl -X ${method} '${shellQuote(req.url || '')}'`];
   const headers = req.headers || { 'Content-Type': 'application/json' };
-  for (const [k, v] of Object.entries(headers)) lines.push(`  -H '${shq(k)}: ${shq(v)}'`);
+  for (const [k, v] of Object.entries(headers)) lines.push(`  -H '${shellQuote(k)}: ${shellQuote(v)}'`);
   if (method !== 'GET' && method !== 'DELETE' && req.body !== undefined) {
-    lines.push(`  --data '${shq(JSON.stringify(req.body))}'`);
+    lines.push(`  --data '${shellQuote(JSON.stringify(req.body))}'`);
   }
   return lines.join(' \\\n');
 }
 
 const app = createApp({
   setup() {
+    // ===== state =====
     const THEME_KEY = 'tyit-theme';
     const mql = window.matchMedia('(prefers-color-scheme: dark)');
 
@@ -402,19 +398,20 @@ const app = createApp({
     const errorMsg = ref('');
     const varsOverrideText = ref(''); // 一行一个 key=value，运行时覆盖场景 YAML 的 vars（值按 JSON 尝试解析交给后端处理）
 
+    // ===== computed =====
     // 当前项目：由所选场景的路径推断（/api/scenarios 已按后端 inferProject 回填 f.project），
     // 与 CLI 一致，不再手选；缺省回退默认项目。
-    const curProjectName = computed(() => {
+    const currentProjectName = computed(() => {
       const f = scenarios.value.find((x) => x.file === selectedFile.value);
       return (f && f.project) || defaultProject.value || '';
     });
-    const curProject = computed(() => projects.value.find((p) => p.name === curProjectName.value));
-    const canRun = computed(() => !!selectedFile.value && !!curProject.value && !!curProject.value.hasCreds && !running.value);
-    const canCurl = computed(() => !!curProject.value && !!curProject.value.hasCreds);
+    const currentProject = computed(() => projects.value.find((p) => p.name === currentProjectName.value));
+    const canRun = computed(() => !!selectedFile.value && !!currentProject.value && !!currentProject.value.hasCreds && !running.value);
+    const canCurl = computed(() => !!currentProject.value && !!currentProject.value.hasCreds);
     // 运行按钮 hover 提示：未选场景 / 缺凭据时说明原因（去掉 navbar 指示后的可发现性补偿）
     const runHint = computed(() => {
       if (!selectedFile.value) return '先在左侧选择一个场景';
-      const p = curProject.value;
+      const p = currentProject.value;
       if (!p) return '无法确定项目';
       if (!p.hasCreds) return `项目 ${p.name} 缺凭据（scenarios/${p.name}/.env）`;
       return `运行 → ${p.name}`;
@@ -436,6 +433,7 @@ const app = createApp({
       });
     });
 
+    // ===== 场景分组 helper =====
     function isExpanded(dir) { return expandedDirs.value.has(dir); }
     function toggleDir(dir) {
       const next = new Set(expandedDirs.value); // 重建 Set 触发响应式更新
@@ -443,6 +441,7 @@ const app = createApp({
       expandedDirs.value = next;
     }
 
+    // ===== 数据加载 =====
     async function loadProjects() {
       try {
         const r = await fetch('/api/projects').then((x) => x.json());
@@ -481,6 +480,7 @@ const app = createApp({
         previewLoading.value = false;
       }
     }
+    // ===== 运行与 curl =====
     async function run() {
       if (!selectedFile.value) return;
       running.value = true;
@@ -519,12 +519,11 @@ const app = createApp({
       return (data.steps || []).map((s) => `# ${s.id} [${s.api}]\n${toCurl(s.request)}`).join('\n\n');
     }
 
-    /* 主题：设 data-bs-theme + 切代码高亮主题；watch 持久化，auto 档跟随系统 */
+    // ===== 主题 =====
+    /* 设 data-bs-theme + 切代码高亮主题；watch 持久化，auto 档跟随系统。实际计算逻辑复用 head
+       预初始化脚本里定义的 window.applyThemeDom，避免和首帧防闪烁那份逻辑重复一次。 */
     function applyTheme(pref) {
-      const dark = pref === 'dark' || (pref === 'auto' && mql.matches);
-      document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
-      const l = document.getElementById('hljs-theme');
-      if (l) l.setAttribute('href', 'vendor/highlightjs/' + (dark ? 'catppuccin-mocha' : 'catppuccin-latte') + '.min.css');
+      window.applyThemeDom(pref);
     }
     watch(theme, (v) => {
       try { localStorage.setItem(THEME_KEY, v); } catch (e) { /* localStorage 不可用则仅本次生效 */ }
@@ -539,7 +538,7 @@ const app = createApp({
     });
 
     return {
-      theme, themeOptions, projects, defaultProject, curProjectName, scenarios, scenariosLoading, scenariosError,
+      theme, themeOptions, projects, defaultProject, currentProjectName, scenarios, scenariosLoading, scenariosError,
       selectedFile, selectedContent, previewLoading, previewError, report, runInfo, runMs,
       running, errorMsg, varsOverrideText, runHint, canRun, canCurl, passedCount, groupedScenarios,
       isExpanded, toggleDir, displayUrl,
@@ -550,146 +549,13 @@ const app = createApp({
 
 /** 代码高亮指令：<code v-highlight="{ code, lang }"> */
 app.directive('highlight', {
-  mounted: (el, b) => hlEl(el, b.value),
-  updated: (el, b) => hlEl(el, b.value),
+  mounted: (el, b) => highlightCodeEl(el, b.value),
+  updated: (el, b) => highlightCodeEl(el, b.value),
 });
 
-/** 折叠卡片：默认 card 样式；inline=true 走步骤内 border-top 小样式（request/response） */
-app.component('collapse-card', {
-  props: {
-    title: String,
-    open: { type: Boolean, default: true },
-    inline: { type: Boolean, default: false },
-  },
-  data() { return { show: this.open }; },
-  template: `
-    <div v-if="inline" class="border-top">
-      <button class="btn btn-link btn-sm text-decoration-none px-3 py-1 d-flex align-items-center gap-2"
-        type="button" :aria-expanded="show" @click="show = !show">
-        <span class="caret">▾</span>{{ title }}
-      </button>
-      <div v-show="show"><slot></slot></div>
-    </div>
-    <div v-else class="card mb-3">
-      <div class="card-header p-0 d-flex align-items-center">
-        <button class="btn btn-link text-decoration-none flex-grow-1 text-start px-3 py-2 d-flex align-items-center gap-2 min-w-0"
-          type="button" :aria-expanded="show" @click="show = !show">
-          <span class="caret">▾</span><span class="fw-semibold text-truncate">{{ title }}</span>
-        </button>
-        <div class="card-head-extra d-flex align-items-center gap-2 pe-2 ps-1"><slot name="head-extra"></slot></div>
-      </div>
-      <div v-show="show"><slot></slot></div>
-    </div>
-  `,
-});
-
-/** 代码块 + 右上角复制动作：复制原文；curl 非空时多一个「复制为 curl」按钮 */
-app.component('code-block', {
-  props: {
-    code: { type: String, default: '' },
-    lang: { type: String, default: 'yaml' },
-    curl: { type: String, default: '' },
-    curlFn: { type: Function, default: null },
-  },
-  data() { return { copied: '' }; },
-  computed: {
-    hasCurl() { return !!this.curl || !!this.curlFn; },
-  },
-  methods: {
-    async doCopy(which) {
-      let text;
-      if (which === 'curl') {
-        try { text = this.curlFn ? await this.curlFn() : this.curl; }
-        catch (e) { window.alert('生成 curl 失败：' + ((e && e.message) || e)); return; }
-      } else {
-        text = this.code;
-      }
-      const ok = await copyText(text);
-      if (!ok) return;
-      this.copied = which;
-      setTimeout(() => { if (this.copied === which) this.copied = ''; }, 1200);
-    },
-  },
-  template: `
-    <div class="code-wrap">
-      <div class="code-actions">
-        <button type="button" class="code-copy-btn" :title="copied === 'code' ? '已复制' : '复制'" @click="doCopy('code')">
-          <svg v-if="copied === 'code'" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg>
-          <svg v-else viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.3" y="5.3" width="8.2" height="8.2" rx="1.3"/><path d="M10.7 5.3V4a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v6.7a1 1 0 0 0 1 1h1.3"/></svg>
-        </button>
-        <button v-if="hasCurl" type="button" class="code-copy-btn" :title="copied === 'curl' ? '已复制' : '复制为 curl'" @click="doCopy('curl')">{{ copied === 'curl' ? '已复制' : 'curl' }}</button>
-      </div>
-      <pre class="yaml"><code v-highlight="{ code, lang }"></code></pre>
-    </div>
-  `,
-});
-
-/** Ant-Design 风格单选下拉：替代原生 select，得到可定制的圆角浮层/悬浮态/选中态。
-    用法 <ant-select v-model="x" :options="[{value,label}]">。支持键盘（↑↓ 移动、Enter 选中、Esc 关闭）、
-    点击外部关闭。仅单选，够本控制台主题切换用。 */
-app.component('ant-select', {
-  props: {
-    modelValue: { default: '' },
-    options: { type: Array, default: () => [] }, // [{ value, label }]
-    placeholder: { type: String, default: '请选择' },
-  },
-  emits: ['update:modelValue'],
-  data() { return { open: false, activeValue: this.modelValue }; },
-  computed: {
-    currentLabel() {
-      const o = this.options.find((x) => x.value === this.modelValue);
-      return o ? o.label : this.placeholder;
-    },
-  },
-  methods: {
-    toggle() { this.open ? this.close() : this.openList(); },
-    openList() { this.open = true; this.activeValue = this.modelValue; },
-    close() { this.open = false; },
-    choose(v) { this.$emit('update:modelValue', v); this.close(); },
-    onKey(e) {
-      const keys = ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Escape'];
-      if (!keys.includes(e.key)) return;
-      e.preventDefault();
-      if (e.key === 'Escape') return this.close();
-      if (!this.open) { if (e.key !== 'Escape') this.openList(); return; }
-      if (e.key === 'Enter' || e.key === ' ') return this.choose(this.activeValue);
-      const vals = this.options.map((o) => o.value);
-      let i = vals.indexOf(this.activeValue);
-      i = e.key === 'ArrowDown' ? Math.min(vals.length - 1, i + 1) : Math.max(0, i - 1);
-      this.activeValue = vals[i];
-    },
-    onDocClick(e) { if (this.open && this.$refs.root && !this.$refs.root.contains(e.target)) this.close(); },
-  },
-  watch: { modelValue(v) { this.activeValue = v; } },
-  mounted() { document.addEventListener('click', this.onDocClick, true); },
-  unmounted() { document.removeEventListener('click', this.onDocClick, true); },
-  template: `
-    <div class="ant-select" :class="{ 'ant-select-open': open }" ref="root">
-      <div class="ant-select-selector" tabindex="0" role="combobox" :aria-expanded="open"
-        @click="toggle" @keydown="onKey">
-        <span class="ant-select-selection-item">{{ currentLabel }}</span>
-        <span class="ant-select-arrow">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round"><path d="m3 6 5 5 5-5"/></svg>
-        </span>
-      </div>
-      <transition name="ant-slide">
-        <div v-if="open" class="ant-select-dropdown" role="listbox">
-          <div v-for="o in options" :key="o.value" class="ant-select-item"
-            :class="{ 'ant-select-item-selected': o.value === modelValue, 'ant-select-item-active': o.value === activeValue }"
-            role="option" :aria-selected="o.value === modelValue"
-            @click="choose(o.value)" @mouseenter="activeValue = o.value">
-            <span class="ant-select-item-content">{{ o.label }}</span>
-            <span v-if="o.value === modelValue" class="ant-select-item-check">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg>
-            </span>
-          </div>
-        </div>
-      </transition>
-    </div>
-  `,
-});
+app.component('collapse-card', CollapseCard);
+app.component('code-block', CodeBlock);
+app.component('ant-select', AntSelect);
 
 app.mount('#app');
 </script>
