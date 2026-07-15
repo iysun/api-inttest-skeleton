@@ -6,10 +6,10 @@ alwaysApply: true
 本项目规范以 [AGENTS.md](../../AGENTS.md) 为单一事实源，关键点：
 
 - **技术栈**：Node + TypeScript（ESM）+ pnpm，用 tsx 直跑，无编译产物。
-- **多环境**：非密端点/鉴权类型在 `environments.json`（入库），密钥按环境放 `.env.<name>`（gitignore）。用 `--env <name>` 选择（省略用 defaultEnv）：`pnpm start run --env test ...`。
-- **鉴权**：可插拔策略 `none`/`bearer`/`hmac`，由每环境的 `authType` 选择（见 `src/client/auth.ts`）。
-- **流程**：类型检查用 `pnpm typecheck` 循环至全绿；跑用例用 `pnpm start run [--env x] scenarios/<env>/*.yaml`（示例按环境分目录）；铺底用 `pnpm start provision [--env x]`。对应 Claude 命令 `/typecheck`、`/run`、`/add-endpoint`。
+- **按项目组织**：`scenarios/<project>/` 每个目录是一个自包含项目（= 一个目标环境），自带 `config.json`（非密端点/authType，入库）、`.env`（密钥，gitignore）、`provision.yaml`（铺底）、可选 `hooks.ts`（定制钩子）。用 `--project <name>`（别名 `--env`）选择，省略时从场景路径推断或用缺省项目：`pnpm start run scenarios/<project>/...`。
+- **鉴权**：可插拔策略 `none`/`bearer`/`hmac`，由每项目的 `authType` 选择（见 `src/client/auth.ts`）。令牌需运行时换取时用项目 `hooks.ts` 的 `beforeRun`。
+- **流程**：类型检查用 `pnpm typecheck` 循环至全绿；跑用例用 `pnpm start run [--project x] scenarios/<project>/*.yaml`；铺底用 `pnpm start provision [--project x]`。对应 Claude 命令 `/typecheck`、`/run`、`/add-endpoint`、`/create-env`。
 - **接口目录**：扩展 `src/catalog` 时对齐后端 DTO/OpenAPI；接口规范记 `docs/api/`。
-- **安全铁律**：绝不把真实凭据/手机号/证件号写进 YAML 或源码；凭据只放各环境 `.env.<name>`（已 gitignore），YAML 引用配置用 `${env.XXX}`。不读取/入库 `config/`、`deploy/config/`、`.env*`、密钥文件。
+- **安全铁律**：绝不把真实凭据/手机号/证件号写进 YAML 或源码；凭据只放各项目 `scenarios/<project>/.env`（已 gitignore），YAML 引用配置用 `${env.XXX}`。不读取/入库 `config/`、`deploy/config/`、`.env`、密钥文件。
 - **幂等**：铺底/用例业务主键用固定前缀（如 `IT-`），可重复执行。
 - **文档维护判断式**：纯重构/小修无需更新文档；新增接口更新接口目录，新踩坑记 `docs/notes/` 并补 `docs/notes.md` 索引。

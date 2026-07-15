@@ -1,64 +1,96 @@
 #!/usr/bin/env -S npx tsx
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  loadConfig,
-  ROOT_DIR,
-  listEnvironments,
-  resolveEnvName,
-  envFilePath,
-} from './config.js';
+import { loadConfig, ROOT_DIR, SCENARIOS_DIR, listProjectsDetailed } from './config.js';
 import { ApiClient } from './client/http.js';
 import { API_CATALOG } from './catalog/apis.js';
 import { loadScenario, runScenario } from './runner/runner.js';
 import { printReport } from './runner/report.js';
 import { provision } from './provision/provision.js';
 import { startServer } from './server/serve.js';
+import { loadState } from './state.js';
+import { loadHooks, invokeHook, type HookContext } from './hooks.js';
 
-/** 从任意位置抽出 --env <name> / -e <name>，返回 { env, rest }（已剥离该选项） */
-function extractEnv(args: string[]): { env?: string; rest: string[] } {
+/** 从任意位置抽出 --project/-P（或别名 --env/-e）<name>，返回 { project, rest }（已剥离该选项） */
+function extractProject(args: string[]): { project?: string; rest: string[] } {
   const rest: string[] = [];
-  let env: string | undefined;
+  let project: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === '--env' || a === '-e') {
-      env = args[++i];
+    if (a === '--project' || a === '-P' || a === '--env' || a === '-e') {
+      project = args[++i];
+    } else if (a.startsWith('--project=')) {
+      project = a.slice('--project='.length);
     } else if (a.startsWith('--env=')) {
-      env = a.slice('--env='.length);
+      project = a.slice('--env='.length);
     } else {
       rest.push(a);
     }
   }
-  return { env, rest };
+  return { project, rest };
+}
+
+/** 从场景文件绝对路径推断所属项目：scenarios/<project>/... 的第一段 */
+function inferProject(absFile: string): string | undefined {
+  const rel = path.relative(SCENARIOS_DIR, absFile);
+  if (rel.startsWith('..')) return undefined;
+  const seg = rel.split(path.sep)[0];
+  return seg || undefined;
 }
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
-  const { env, rest: args } = extractEnv(argv);
+  const { project: projectOpt, rest: args } = extractProject(argv);
   const [cmd, ...rest] = args;
 
   switch (cmd) {
     case 'provision': {
       const file = rest[0]; // 可选：自定义铺底场景
-      const ok = await provision(file ? path.resolve(file) : undefined, env);
+      const ok = await provision(file ? path.resolve(file) : undefined, projectOpt);
       process.exit(ok ? 0 : 1);
       break;
     }
     case 'run': {
       if (!rest[0]) {
-        console.error('用法: tyit run [--env <name>] <scenario.yaml> [more.yaml ...]');
+        console.error('用法: apiit run [--project <name>] <scenario.yaml> [more.yaml ...]');
         process.exit(2);
       }
-      const cfg = loadConfig({ env, requireCreds: true });
-      console.error(`环境: ${cfg.env}  ->  ${cfg.baseUrl}${cfg.apiPrefix}`);
+      const files = rest.map((f) => path.resolve(f));
+      // 项目：显式 --project/--env 优先，否则从场景路径推断（要求同属一个项目）
+      let project = projectOpt;
+      if (!project) {
+        const inferred = new Set(files.map(inferProject).filter(Boolean) as string[]);
+        if (inferred.size === 1) project = [...inferred][0];
+        else if (inferred.size > 1) {
+          console.error(`多个场景分属不同项目(${[...inferred].join(', ')})，请用 --project 指定或分开跑。`);
+          process.exit(2);
+        }
+      }
+      const cfg = loadConfig({ project, requireCreds: true });
+      console.error(`项目: ${cfg.project}  ->  ${cfg.baseUrl}${cfg.apiPrefix}`);
       const client = new ApiClient(cfg);
+
+      const hooks = await loadHooks(cfg.projectDir);
+      const ctx: HookContext = {
+        config: cfg,
+        client,
+        project: cfg.project,
+        projectDir: cfg.projectDir,
+        state: loadState(cfg.project),
+        log: (m) => console.error(m),
+      };
+      await invokeHook(hooks, 'beforeRun', ctx);
+
       let allOk = true;
-      for (const f of rest) {
-        const scenario = loadScenario(path.resolve(f));
-        const report = await runScenario(client, scenario);
+      for (const f of files) {
+        const scenario = loadScenario(f);
+        const report = await runScenario(client, scenario, cfg.project);
         printReport(report);
         allOk = allOk && report.ok;
       }
+
+      ctx.state = loadState(cfg.project);
+      await invokeHook(hooks, 'afterRun', ctx);
       process.exit(allOk ? 0 : 1);
       break;
     }
@@ -77,7 +109,7 @@ async function main(): Promise<void> {
         console.error(`非法端口: ${port}`);
         process.exit(2);
       }
-      await startServer({ port, env });
+      await startServer({ port, project: projectOpt });
       break; // 服务常驻，不 exit
     }
     case undefined:
@@ -94,24 +126,28 @@ async function main(): Promise<void> {
 }
 
 function list(): void {
-  const { defaultEnv, names } = listEnvironments();
-  const current = resolveEnvName();
-  console.log('\n可用环境 (environments.json):');
-  for (const name of names) {
-    const isDefault = name === defaultEnv ? ' (default)' : '';
-    const isCurrent = name === current ? ' ←当前' : '';
-    const hasCreds = fs.existsSync(envFilePath(name)) ? '凭据✔' : `凭据✘ (需 .env.${name})`;
-    console.log(`  ${name.padEnd(12)}${isDefault}${isCurrent}  ${hasCreds}`);
+  const { defaultProject, current, projects } = listProjectsDetailed();
+  console.log('\n可用项目 (scenarios/*/config.json):');
+  if (!projects.length) console.log('  (无。在 scenarios/<name>/ 放 config.json 即成为一个项目)');
+  for (const p of projects) {
+    const flags = [p.isDefault ? '(default)' : '', p.name === current ? '←当前' : '']
+      .filter(Boolean)
+      .join(' ');
+    const creds = p.hasCreds ? '凭据✔' : `凭据✘ (需 scenarios/${p.name}/.env)`;
+    const hooks = p.hasHooks ? ' hooks✔' : '';
+    console.log(
+      `  ${p.name.padEnd(14)} ${p.authType.padEnd(6)} ${p.baseUrl || '(未配 baseUrl)'}  ${creds}${hooks}${flags ? '  ' + flags : ''}`
+    );
   }
-  console.log('  用 --env <name> 切换，或设 TY_ENV。');
+  console.log('  用 --project <name>（或 --env）切换，或设 TY_PROJECT。');
 
-  console.log('\n可用接口 (apiKey):');
+  console.log('\n可用接口 (apiKey，全局共享):');
   for (const [key, def] of Object.entries(API_CATALOG)) {
     console.log(`  ${key.padEnd(28)} ${def.method.padEnd(4)} ${def.path}`);
     console.log(`  ${''.padEnd(28)} ${def.summary}`);
   }
-  const scenDir = path.join(ROOT_DIR, 'scenarios');
-  const files = collectYaml(scenDir);
+
+  const files = collectYaml(SCENARIOS_DIR);
   console.log('\n可用场景 (scenarios/):');
   for (const f of files) console.log(`  ${path.relative(ROOT_DIR, f)}`);
   console.log('');
@@ -134,19 +170,18 @@ function collectYaml(dir: string): string[] {
 
 function usage(): void {
   console.log(`
-接口集测工程 CLI
+接口集测工程 CLI（按项目组织：scenarios/<project>/ 各自带 config.json + .env + provision.yaml + hooks.ts）
 
 用法:
-  pnpm start provision [--env <name>] [scenario.yaml]   一键铺底（默认 scenarios/_fixtures/provision.yaml），写入 .state
-  pnpm start run [--env <name>] <scenario.yaml> [...]   执行一个或多个 YAML 场景用例
-  pnpm start list                                       列出可用环境、接口目录与场景
-  pnpm start serve [--env <name>] [--port 8787]         启动本地前端控制台（浏览器选环境+场景跑用例）
-  pnpm start help                                       显示本帮助
+  pnpm start provision [--project <name>] [scenario.yaml]   跑该项目 provision.yaml 铺底，写入 .state/<project>
+  pnpm start run [--project <name>] <scenario.yaml> [...]   执行用例（省略 --project 时从场景路径推断项目）
+  pnpm start list                                           列出项目、接口目录与场景
+  pnpm start serve [--project <name>] [--port 8787]         启动本地控制台（浏览器选项目+场景跑用例）
+  pnpm start help                                           显示本帮助
 
-环境: 端点/鉴权类型在 environments.json（入库），密钥在各自 .env.<name>（gitignore）。
-      选择优先级 --env > TY_ENV > environments.json.defaultEnv > stable。
-      stable=永久稳定环境(默认); dev=当前迭代环境(url/密钥每迭代变)。
-      首次: cp .env.example .env.stable 并按 authType 填凭据（hmac→PROJECT_ID/SECRET，bearer→ACCESS_TOKEN，none→无）。
+项目: 每个 scenarios/<name>/ 是一个项目(=一个环境/目标)，非密端点/鉴权在 config.json（入库），
+      密钥在 scenarios/<name>/.env（gitignore）。选择优先级 --project/--env > TY_PROJECT/TY_ENV >
+      config.json 里 default:true 的项目 > 唯一项目。首次: cp scenarios/<name>/.env.example scenarios/<name>/.env 填凭据。
 `);
 }
 

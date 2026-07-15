@@ -14,7 +14,7 @@ allowed-tools: Bash, PowerShell, Read, Edit, Write, Grep, Glob
    `method` / `path` / 非默认前缀接口加 `prefix` / `signed: true` / 批量接口 `bodyIsArray: true` / `summary`。
 3. **补类型**：在 `src/catalog/types.ts` 加请求/响应 interface，字段与后端 DTO 约束一致；深层可选项用 `[k: string]: unknown` 兜底。
 4. **类型门禁**：跑 `/typecheck` 至全绿。
-5. **写场景**：在目标环境目录 `scenarios/<env>/` 新建 `*.yaml`（`<env>` = 要跑的 `--env` 名；可复制 `scenarios/stable/example.yaml`），用 `${state.*}` 复用铺底数据、固定前缀（如 `IT-`）造新数据，写 `assert`。
+5. **写场景**：在目标项目目录 `scenarios/<project>/` 新建 `*.yaml`（`<project>` = 要跑的 `--project` 名；可复制 `scenarios/example/example.yaml`），用 `${state.*}` 复用铺底数据、固定前缀（如 `IT-`）造新数据，写 `assert`。
 6. **验证**：走 `/run` 跑通该场景，断言全绿。
 7. **判断补文档**：接口进入常用目录 → 在 `AGENTS.md` 接口表 + `docs/api/` 补一条；有新踩坑 → 记 `docs/notes/` 并补索引。纯试验性、一次性的可不补。
 

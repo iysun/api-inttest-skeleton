@@ -1,0 +1,7 @@
+{
+  "$comment": "本项目(=一个目标环境)的非密配置，入库。密钥放同目录 .env（gitignore）。authType: none|bearer|hmac，可被 .env 的 AUTH_TYPE 覆盖。default:true 时为缺省命中项目。接入你的项目：复制本目录改名，填 baseUrl/apiPrefix/authType。",
+  "baseUrl": "",
+  "apiPrefix": "",
+  "authType": "hmac",
+  "default": true
+}

@@ -2,13 +2,29 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import { ROOT_DIR, loadConfigForEnv, listEnvironmentsDetailed, resolveEnvName } from '../config.js';
+import {
+  ROOT_DIR,
+  SCENARIOS_DIR,
+  loadConfigForProject,
+  listProjectsDetailed,
+  resolveProjectName,
+} from '../config.js';
 import { ApiClient } from '../client/http.js';
 import { loadScenario, runScenario, describeScenarioRequests } from '../runner/runner.js';
+import { loadState } from '../state.js';
+import { loadHooks, invokeHook, type HookContext } from '../hooks.js';
 
 const HOST = '127.0.0.1';
 const WEB_DIR = path.join(ROOT_DIR, 'web');
-const SCEN_DIR = path.join(ROOT_DIR, 'scenarios');
+const SCEN_DIR = SCENARIOS_DIR;
+
+/** 从场景文件绝对路径推断所属项目：scenarios/<project>/... 的第一段 */
+function inferProject(abs: string): string | undefined {
+  const rel = path.relative(SCEN_DIR, abs);
+  if (rel.startsWith('..')) return undefined;
+  const seg = rel.split(path.sep)[0];
+  return seg || undefined;
+}
 
 /** 容错读取场景 yaml 的顶层 name（解析失败/无 name 时返回 undefined，不影响整份列表） */
 function readScenarioName(abs: string): string | undefined {
@@ -20,9 +36,9 @@ function readScenarioName(abs: string): string | undefined {
   }
 }
 
-/** 递归收集 scenarios/ 下的 yaml，返回相对 ROOT_DIR 的 posix 路径 + 场景描述(name) */
-function listScenarioFiles(): { file: string; name?: string }[] {
-  const out: { file: string; name?: string }[] = [];
+/** 递归收集 scenarios/ 下的 yaml，返回相对 ROOT_DIR 的 posix 路径 + 场景描述(name) + 所属项目 */
+function listScenarioFiles(): { file: string; name?: string; project?: string }[] {
+  const out: { file: string; name?: string; project?: string }[] = [];
   const walk = (d: string) => {
     if (!fs.existsSync(d)) return;
     for (const name of fs.readdirSync(d).sort()) {
@@ -32,6 +48,7 @@ function listScenarioFiles(): { file: string; name?: string }[] {
         out.push({
           file: path.relative(ROOT_DIR, full).split(path.sep).join('/'),
           name: readScenarioName(full),
+          project: inferProject(full),
         });
       }
     }
@@ -99,13 +116,18 @@ function serveStatic(res: http.ServerResponse, pathname: string): void {
   res.end(fs.readFileSync(abs));
 }
 
+/** 选定要跑的项目：显式优先，否则从场景路径推断，再否则解析默认项目 */
+function pickProject(explicit: string | undefined, abs: string): string {
+  return (explicit && explicit.trim()) || inferProject(abs) || resolveProjectName();
+}
+
 async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = new URL(req.url || '/', `http://${HOST}`);
   const p = url.pathname;
   const method = req.method || 'GET';
 
-  if (method === 'GET' && p === '/api/environments') {
-    sendJson(res, 200, listEnvironmentsDetailed());
+  if (method === 'GET' && p === '/api/projects') {
+    sendJson(res, 200, listProjectsDetailed());
     return;
   }
 
@@ -134,41 +156,53 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       sendJson(res, 400, { error: `非法或不存在的场景文件: ${file ?? ''}` });
       return;
     }
-    const envName = (url.searchParams.get('env') || '').trim() || resolveEnvName();
     let cfg;
     try {
-      cfg = loadConfigForEnv(envName, { requireCreds: true });
+      cfg = loadConfigForProject(pickProject(url.searchParams.get('project') || undefined, abs), {
+        requireCreds: true,
+      });
     } catch (e) {
       sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) });
       return;
     }
-    const steps = describeScenarioRequests(new ApiClient(cfg), loadScenario(abs));
-    sendJson(res, 200, { env: cfg.env, file, steps });
+    const steps = describeScenarioRequests(new ApiClient(cfg), loadScenario(abs), cfg.project);
+    sendJson(res, 200, { project: cfg.project, file, steps });
     return;
   }
 
   if (method === 'POST' && p === '/api/run') {
     try {
-      const body = (await readJsonBody(req)) as { env?: string; file?: string };
+      const body = (await readJsonBody(req)) as { project?: string; env?: string; file?: string };
       const abs = resolveScenario(body.file);
       if (!abs) {
         sendJson(res, 400, { error: `非法或不存在的场景文件: ${body.file ?? ''}` });
         return;
       }
-      const envName = (body.env && body.env.trim()) || resolveEnvName();
       let cfg;
       try {
-        cfg = loadConfigForEnv(envName, { requireCreds: true });
+        cfg = loadConfigForProject(pickProject(body.project || body.env, abs), { requireCreds: true });
       } catch (e) {
         // 缺凭据等配置错误：400 + 中文提示（不泄密钥）
         sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) });
         return;
       }
       const client = new ApiClient(cfg);
+      const hooks = await loadHooks(cfg.projectDir);
+      const ctx: HookContext = {
+        config: cfg,
+        client,
+        project: cfg.project,
+        projectDir: cfg.projectDir,
+        state: loadState(cfg.project),
+        log: (m) => console.error(m),
+      };
+      await invokeHook(hooks, 'beforeRun', ctx);
       const scenario = loadScenario(abs);
-      const report = await runScenario(client, scenario);
+      const report = await runScenario(client, scenario, cfg.project);
+      ctx.state = loadState(cfg.project);
+      await invokeHook(hooks, 'afterRun', ctx);
       sendJson(res, 200, {
-        env: cfg.env,
+        project: cfg.project,
         baseUrl: cfg.baseUrl,
         apiPrefix: cfg.apiPrefix,
         file: body.file,
@@ -190,7 +224,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 }
 
 /** 启动本地场景运行控制台（仅监听 127.0.0.1，密钥/签名不出网） */
-export async function startServer(opts: { port?: number; env?: string } = {}): Promise<void> {
+export async function startServer(opts: { port?: number; project?: string } = {}): Promise<void> {
   const port = opts.port ?? 8787;
   const server = http.createServer((req, res) => {
     handle(req, res).catch((e) => {
@@ -205,7 +239,14 @@ export async function startServer(opts: { port?: number; env?: string } = {}): P
     server.once('error', reject);
     server.listen(port, HOST, resolve);
   });
-  const current = opts.env || resolveEnvName();
+  let current: string | null = opts.project || null;
+  if (!current) {
+    try {
+      current = resolveProjectName();
+    } catch {
+      current = null;
+    }
+  }
   console.log(`场景运行控制台已启动:  http://${HOST}:${port}`);
-  console.log(`默认环境: ${current}（页面上可切换）。Ctrl+C 停止。`);
+  console.log(`默认项目: ${current ?? '(未指定，可在页面选择)'}（页面上可切换）。Ctrl+C 停止。`);
 }

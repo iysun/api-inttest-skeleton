@@ -1,14 +1,14 @@
-# 一键铺底（共享 fixture，与环境无关；provision 命令硬编码此路径）
+# 一键铺底（按项目：provision 命令读本项目的 scenarios/<project>/provision.yaml）
 # ★ 通用示例：接入你的项目时，把下面的步骤换成本项目真正要预建的基础数据。
 #   要点：全程用固定前缀的业务主键（这里 IT-）保证幂等可重复执行；
-#   把用例要复用的产物写进顶层 exports，provision 会持久化到 .state/provision.json。
+#   把用例要复用的产物写进顶层 exports，provision 会持久化到 .state/<project>/provision.json。
 name: 一键铺底（示例：创建一个资源）
 
 vars:
   # 业务主键前缀，改这里即可换一套铺底数据
   bizNo: "IT-RES-001"
 
-# 要持久化到 .state/provision.json、供其它场景用 ${state.*} 复用的变量名
+# 要持久化到 .state/<project>/provision.json、供其它场景用 ${state.*} 复用的变量名
 exports:
   - seedResourceId
 

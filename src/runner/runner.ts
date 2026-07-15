@@ -84,11 +84,15 @@ export interface ScenarioRequest {
  * 用于「复制为 curl」。上下文与 runScenario 一致，但链式步骤依赖的 ${steps.x...} 无实际响应，
  * 会被 interpolate 解析为空串（尽力而为，不抛错）。
  */
-export function describeScenarioRequests(client: ApiClient, scenario: Scenario): ScenarioRequest[] {
+export function describeScenarioRequests(
+  client: ApiClient,
+  scenario: Scenario,
+  project?: string
+): ScenarioRequest[] {
   const context: Record<string, unknown> = {
     ...(scenario.vars || {}),
     env: { ...process.env },
-    state: loadState(),
+    state: loadState(project),
     steps: {} as Record<string, unknown>,
   };
 
@@ -118,12 +122,16 @@ export function describeScenarioRequests(client: ApiClient, scenario: Scenario):
   });
 }
 
-export async function runScenario(client: ApiClient, scenario: Scenario): Promise<ScenarioReport> {
+export async function runScenario(
+  client: ApiClient,
+  scenario: Scenario,
+  project?: string
+): Promise<ScenarioReport> {
   // 上下文：vars 顶层展开 + env + state + steps
   const context: Record<string, unknown> = {
     ...(scenario.vars || {}),
     env: { ...process.env },
-    state: loadState(),
+    state: loadState(project),
     steps: {} as Record<string, unknown>,
   };
 

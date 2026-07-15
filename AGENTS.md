@@ -4,7 +4,9 @@
 
 接口集测工程：一键铺底测试数据，用**声明式 YAML** 写接口用例，通过**可插拔鉴权**统一处理签名/令牌鉴权并执行 + 断言。技术栈 **Node + TypeScript（ESM）+ pnpm**，用 `tsx` 直跑，无编译产物。
 
-你的任务通常是：**按规范新增/修改 `scenarios/<env>/*.yaml` 或向 `src/catalog/` 增接口，然后用 CLI 跑通。**
+**按项目组织**：`scenarios/<project>/` 下每个目录是一个自包含项目（= 一个目标环境），自带 `config.json`（非密端点/鉴权）、`.env`（密钥）、`provision.yaml`（铺底）、`hooks.ts`（可选定制钩子）与若干用例 yaml。
+
+你的任务通常是：**按规范新增/修改 `scenarios/<project>/*.yaml` 或向 `src/catalog/` 增接口，然后用 CLI 跑通。**
 
 ## AI 工具（harness 入口）
 
@@ -14,40 +16,40 @@
 |------|------|
 | `/typecheck` | 类型检查-修复循环：`pnpm typecheck` → 读 tsc 报错修复 → 重跑，直到全绿 |
 | `/run` | 跑用例-验证循环：`provision` / `run` 场景 → 读断言失败与请求/响应摘要 → 修 body/断言/代码 → 重跑 |
-| `/add-endpoint` | 新增接口-写用例：向 `src/catalog/` 加 apiKey + 类型 → 写 `scenarios/<env>/*.yaml` → run 至绿 |
-| `/create-env` | 建环境-端到端：交互收集环境信息 → 写 `environments.json` + `.env.<name>` 模板（密钥由用户自填）→ 复用/写场景 → `provision` / `run` 验证打通 |
-| `/gen-api-example` | 选接口-生示例：从你的 OpenAPI/后端 DTO 选一个接口 + 选环境 → 接入 catalog（识别服务前缀）+ 补类型 → 生成 `scenarios/<env>/*.yaml` → `run` 至绿 |
+| `/add-endpoint` | 新增接口-写用例：向 `src/catalog/` 加 apiKey + 类型 → 写 `scenarios/<project>/*.yaml` → run 至绿 |
+| `/create-env` | 建项目-端到端：交互收集非密信息 → 写 `scenarios/<name>/config.json` + `.env.example` 模板（密钥由用户自填）→ 复用/写场景 → `provision` / `run` 验证打通 |
+| `/gen-api-example` | 选接口-生示例：从你的 OpenAPI/后端 DTO 选一个接口 + 选/建项目 → 接入 catalog（识别服务前缀）+ 补类型 → 生成 `scenarios/<project>/*.yaml` → `run` 至绿 |
 
 Claude Code 下用 `/typecheck`、`/run`、`/add-endpoint`、`/create-env`、`/gen-api-example`；Codex 下对应 `.codex/skills/add-endpoint`；其余按本文件流程手动执行。
 
 ## 铁律
 
-- **绝不**把真实凭据 / 手机号 / 证件号等敏感值写进 YAML 或源码。凭据只放各环境的本地 `.env.<name>`（如 `.env.stable`、`.env.dev`，均已 `.gitignore`）。YAML 里如需引用配置，用 `${env.XXX}`。
-- 不读取、不入库 `config/`、`deploy/config/`、`.env*`、密钥或凭据文件内容。
+- **绝不**把真实凭据 / 手机号 / 证件号等敏感值写进 YAML 或源码。凭据只放各项目的本地 `scenarios/<project>/.env`（已 `.gitignore`，模板 `scenarios/<project>/.env.example` 入库）。YAML 里如需引用配置，用 `${env.XXX}`。
+- 不读取、不入库 `config/`、`deploy/config/`、`.env`、密钥或凭据文件内容。
 - 铺底与用例的业务主键用固定前缀（如 `IT-`），保证幂等、可重复执行。
 
 ## 构建 / 运行 / 开发
 
-### 环境准备
+### 项目准备
 ```bash
-pnpm install                              # Node >= 18
-cp .env.example .env.stable               # 每环境一份密钥文件，按 authType 填凭据
+pnpm install                                              # Node >= 18
+cp scenarios/example/.env.example scenarios/example/.env  # 每项目一份密钥文件，按 authType 填凭据
 ```
-非密端点（baseUrl / apiPrefix / authType）按环境写在 `environments.json`（入库）；密钥按环境放 `.env.<name>`（gitignore）。环境选择优先级：`--env <name>` > `TY_ENV` > `environments.json.defaultEnv` > `stable`。`stable`=永久稳定环境（url 固定、默认命中）；`dev`=当前迭代环境（每迭代重新部署，url/密钥都会变）。
+每个 `scenarios/<name>/` 是一个项目：非密端点（baseUrl / apiPrefix / authType）写在该目录 `config.json`（入库）；密钥放同目录 `.env`（gitignore）。项目选择优先级：`--project <name>`（别名 `--env`） > `TY_PROJECT`（别名 `TY_ENV`） > 某 `config.json` 里 `default:true` 的项目 > 唯一项目 > 报错并列出可选。**新增一个目标环境 = 新增一个项目**：复制 `scenarios/example/` 改名，改 `config.json`，`cp .env.example .env` 填凭据。
 
 ### 运行
 ```bash
-pnpm start list                                        # 查看环境、接口目录 + 现有场景
-pnpm start provision --env stable                      # 按 stable 环境一键铺底 -> 写 .state/provision.json
-pnpm start run --env dev scenarios/dev/xxx.yaml [more...] # 按 dev 环境执行用例（省略 --env 用默认环境）
-pnpm start serve [--env <name>] [--port 8787]          # 前端控制台：浏览器选环境+场景跑用例（只绑 127.0.0.1）
-pnpm typecheck                                         # 类型检查
+pnpm start list                                           # 查看项目、接口目录 + 现有场景
+pnpm start provision [--project <name>]                   # 跑该项目 provision.yaml 一键铺底 -> 写 .state/<project>/provision.json
+pnpm start run [--project <name>] scenarios/<project>/xxx.yaml [more...]  # 执行用例（省略 --project 时从场景路径推断项目）
+pnpm start serve [--project <name>] [--port 8787]         # 前端控制台：浏览器选项目+场景跑用例（只绑 127.0.0.1）
+pnpm typecheck                                            # 类型检查
 ```
-> 首次 `provision` 若 404，是网关前缀问题，见 [docs/notes/api-prefix-calibration.md](docs/notes/api-prefix-calibration.md)。鉴权失败见 [docs/notes/auth-and-signing.md](docs/notes/auth-and-signing.md)。多环境细节见 [docs/notes/environments.md](docs/notes/environments.md)。
+> 首次 `provision` 若 404，是网关前缀问题，见 [docs/notes/api-prefix-calibration.md](docs/notes/api-prefix-calibration.md)。鉴权失败见 [docs/notes/auth-and-signing.md](docs/notes/auth-and-signing.md)。多项目/多环境细节见 [docs/notes/projects.md](docs/notes/projects.md)。
 
 ### 添加接口
 向 `src/catalog/apis.ts`（`API_CATALOG`）加一条 apiKey，`src/catalog/types.ts` 补请求/响应类型（对齐后端 DTO），再写场景验证。完整步骤走 `/add-endpoint`；从 OpenAPI/文档批量生成走 `/gen-api-example`。
-> **多服务前缀**：若接口横跨多个网关服务前缀，`ApiDef.prefix` 可按接口覆盖 env 的 `apiPrefix`（缺省走 env 默认）。非默认前缀的接口必须显式声明 `prefix`，详见 [docs/notes/api-prefix-calibration.md](docs/notes/api-prefix-calibration.md)。
+> **多服务前缀**：若接口横跨多个网关服务前缀，`ApiDef.prefix` 可按接口覆盖项目的 `apiPrefix`（缺省走项目默认）。非默认前缀的接口必须显式声明 `prefix`，详见 [docs/notes/api-prefix-calibration.md](docs/notes/api-prefix-calibration.md)。
 
 ## 接口目录（apiKey → 后端接口）
 
@@ -59,14 +61,14 @@ YAML 用 `api: <apiKey>` 引用。字段见 `src/catalog/types.ts`。下表为�
 | `resource.get` | GET `/v1/resources/get` | query `resourceId` | `data` |
 | `resource.batchCreate` | POST `/v1/resources/batchCreate` | **数组** | `data.successData[].resourceId` |
 
-鉴权由客户端按 env 的 `authType` 自动处理，YAML 无需关心（原理见 [docs/notes/auth-and-signing.md](docs/notes/auth-and-signing.md)）。响应统一 `{ code, message, data }`，成功码见 [docs/notes/response-envelope.md](docs/notes/response-envelope.md)（骨架默认 `code == 200`，按项目改）。
+鉴权由客户端按项目的 `authType` 自动处理，YAML 无需关心（原理见 [docs/notes/auth-and-signing.md](docs/notes/auth-and-signing.md)）。响应统一 `{ code, message, data }`，成功码见 [docs/notes/response-envelope.md](docs/notes/response-envelope.md)（骨架默认 `code == 200`，按项目改）。
 
 ## YAML 场景规范
 
-### 目录约定（按环境分目录）
-环境特定的接口示例放 `scenarios/<env>/`，`<env>` = `--env` 名，与 `environments.json` 的 key、`.env.<name>` 一一对应（如 `scenarios/stable/`、`scenarios/dev/`）。跑用例时传完整路径 `scenarios/<env>/<file>.yaml`。
-- **共享铺底** `scenarios/_fixtures/provision.yaml` 与环境无关，原地不动（`provision` 命令硬编码此路径）。
-- 新增/生成示例时按目标环境落到对应 `scenarios/<env>/` 下，不要堆在 `scenarios/` 根。
+### 目录约定（按项目分目录）
+每个 `scenarios/<project>/` 是一个项目，其下放该项目的用例 yaml。`<project>` = `--project` 名，目录内的 `config.json` 决定它是一个项目。跑用例时传完整路径 `scenarios/<project>/<file>.yaml`（省略 `--project` 时从该路径推断项目）。
+- **一键铺底** `scenarios/<project>/provision.yaml` 是该项目专属的铺底场景，`provision` 命令读它。
+- 新增/生成示例时落到对应 `scenarios/<project>/` 下，不要堆在 `scenarios/` 根。
 
 ```yaml
 name: 场景名称
@@ -91,17 +93,19 @@ steps:
 ```
 
 ### 变量与插值 `${...}`
-按点路径解析，可用：`${varName}`（vars 或 `save` 的顶层变量）、`${state.xxx}`（`.state/provision.json` 的铺底结果）、`${steps.<id>.data.xxx}`（同场景已执行步骤响应）、`${env.XXX}`（环境变量，勿写死密钥）。字符串整体是 `"${path}"` 时替换为解析出的**原始值**（可为对象/数组/数字）。
+按点路径解析，可用：`${varName}`（vars 或 `save` 的顶层变量）、`${state.xxx}`（`.state/<project>/provision.json` 的铺底结果）、`${steps.<id>.data.xxx}`（同场景已执行步骤响应）、`${env.XXX}`（环境变量，勿写死密钥）。字符串整体是 `"${path}"` 时替换为解析出的**原始值**（可为对象/数组/数字）。
 
 ### 断言 DSL（对响应 `{code,message,data,httpStatus}` 求值）
 `code == 200`、`data.successCount == 1`、`data.resourceId != null`、`message contains 成功`、`data.x !contains 失败`；单独路径 `data.resourceId` 即真值判断。点路径示例 `data.successData.0.resourceId`。
 
-## 铺底状态
-`/run` 或 `pnpm start provision` 执行 `scenarios/_fixtures/provision.yaml`，把 `exports` 变量写入 `.state/provision.json`。其它场景用 `${state.<name>}` 复用这些铺底产物，无需重复创建。详见 [docs/notes/idempotency-and-state.md](docs/notes/idempotency-and-state.md)。
+## 铺底状态与项目钩子
+`/run` 或 `pnpm start provision` 执行该项目的 `scenarios/<project>/provision.yaml`，把 `exports` 变量写入 `.state/<project>/provision.json`（按项目隔离）。其它场景用 `${state.<name>}` 复用这些铺底产物，无需重复创建。详见 [docs/notes/idempotency-and-state.md](docs/notes/idempotency-and-state.md)。
+
+项目可在 `scenarios/<project>/hooks.ts` 导出生命周期钩子 `beforeProvision/afterProvision/beforeRun/afterRun` 做**该项目/环境专属**的定制操作（如 bearer 换取令牌：在 `beforeRun` 里改 `ctx.config.token` 即刻生效；前置准备、收尾清理）。钩子拿到的 `ctx` 含 `config/client/project/projectDir/state/log`，与后续请求共享同一 `config`/`client`。不需要就删掉该文件。
 
 ## 维护约定（判断式）
 
-- 改动引入**新踩坑 / 限制 / 环境差异**（如鉴权口径、网关前缀）→ 判断是否值得沉淀 → 记入 `docs/notes/` 并在 `docs/notes.md` 补一行索引。
+- 改动引入**新踩坑 / 限制 / 项目差异**（如鉴权口径、网关前缀）→ 判断是否值得沉淀 → 记入 `docs/notes/` 并在 `docs/notes.md` 补一行索引。
 - **新增/改动接口** → 更新接口目录（本文件表格 + `docs/api/`）。
 - **是否更新文档由你按改动性质自行判断**：纯重构 / 小修 / 不影响行为的改动无需更新；文档与代码可同次提交。
 

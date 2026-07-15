@@ -8,7 +8,7 @@ alwaysApply: false
 
 - 场景 schema、`${...}` 插值作用域（`vars` / `state` / `steps` / `env`）、断言 DSL（`==` `!=` `contains` `!contains` / 真值）见 AGENTS.md「YAML 场景规范」节。
 - `api:` 必须引用 `src/catalog/apis.ts` 里已注册的 apiKey；批量接口（`bodyIsArray: true`）请求体是**数组**。
-- 复用铺底数据用 `${state.<name>}`（来自 `.state/provision.json`）；造新数据用固定前缀（如 `IT-`）主键。
+- 场景放在所属项目目录 `scenarios/<project>/` 下；复用铺底数据用 `${state.<name>}`（来自 `.state/<project>/provision.json`）；造新数据用固定前缀（如 `IT-`）主键。
 - 断言/`save` 的点路径对齐响应真实结构，如 `data.successData.0.resourceId`；成功码见 `docs/notes/response-envelope.md`（骨架默认 `code == 200`，按项目改）。
 - 新增接口先在 `apis.ts` 注册 + `types.ts` 补类型（对齐后端 DTO），再 `pnpm typecheck`，参照 `/add-endpoint` 流程。
 - 绝不在 YAML/类型示例里写真实凭据或个人敏感信息。

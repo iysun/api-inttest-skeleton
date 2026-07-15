@@ -7,15 +7,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** 工程根目录（src 的上一级） */
 export const ROOT_DIR = path.resolve(__dirname, '..');
-
-const ENVIRONMENTS_FILE = path.join(ROOT_DIR, 'environments.json');
+/** 项目根目录：scenarios/ 下每个子目录（含 config.json）是一个自包含项目 */
+export const SCENARIOS_DIR = path.join(ROOT_DIR, 'scenarios');
 
 /** 鉴权策略类型：none 无鉴权 / bearer 令牌 / hmac 签名（见 src/client/auth.ts） */
 export type AuthType = 'none' | 'bearer' | 'hmac';
 
 export interface AppConfig {
-  /** 当前生效的环境名 */
-  env: string;
+  /** 当前生效的项目名（= scenarios/<project>/） */
+  project: string;
+  /** 该项目目录绝对路径 */
+  projectDir: string;
   baseUrl: string;
   apiPrefix: string;
   /** 鉴权策略；决定 http 注入哪种鉴权头，以及需要哪些凭据 */
@@ -30,58 +32,77 @@ export interface AppConfig {
   debugSign: boolean;
 }
 
-interface EnvEntry {
+/** 每项目非密配置 scenarios/<project>/config.json（入库） */
+interface ProjectConfigFile {
   baseUrl?: string;
   apiPrefix?: string;
-  /** 该环境的鉴权策略（非密，入库）；可被 .env 的 AUTH_TYPE 覆盖 */
   authType?: AuthType;
-}
-interface EnvironmentsFile {
-  defaultEnv?: string;
-  environments?: Record<string, EnvEntry>;
+  /** 是否为默认项目（缺省选择时命中） */
+  default?: boolean;
 }
 
 export interface LoadConfigOptions {
-  /** 环境名；缺省时按 TY_ENV > environments.json.defaultEnv > 'stable' 解析 */
+  /** 项目名；缺省时按 TY_PROJECT/TY_ENV > default 项目 > 唯一项目 解析 */
+  project?: string;
+  /** project 的别名（向后兼容 --env） */
   env?: string;
   /** 是否要求凭据齐全（列目录/校验类命令可传 false 跳过） */
   requireCreds?: boolean;
 }
 
-function readEnvironmentsFile(): EnvironmentsFile {
+function projectDirPath(name: string): string {
+  return path.join(SCENARIOS_DIR, name);
+}
+function projectConfigPath(name: string): string {
+  return path.join(projectDirPath(name), 'config.json');
+}
+/** 每项目密钥文件：scenarios/<project>/.env */
+export function projectEnvFile(name: string): string {
+  return path.join(projectDirPath(name), '.env');
+}
+
+function readProjectConfig(name: string): ProjectConfigFile {
   try {
-    return JSON.parse(fs.readFileSync(ENVIRONMENTS_FILE, 'utf8')) as EnvironmentsFile;
+    return JSON.parse(fs.readFileSync(projectConfigPath(name), 'utf8')) as ProjectConfigFile;
   } catch {
     return {};
   }
 }
 
-/** 列出可用环境与默认环境（供 list 命令） */
-export function listEnvironments(): { defaultEnv: string; names: string[] } {
-  const f = readEnvironmentsFile();
-  return {
-    defaultEnv: f.defaultEnv || 'stable',
-    names: Object.keys(f.environments || {}),
-  };
+/** 扫描 scenarios 下每个含 config.json 的子目录，得到项目名列表 */
+export function listProjectNames(): string[] {
+  try {
+    return fs
+      .readdirSync(SCENARIOS_DIR, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && fs.existsSync(projectConfigPath(d.name)))
+      .map((d) => d.name)
+      .sort();
+  } catch {
+    return [];
+  }
 }
 
-/** 解析最终环境名：显式入参 > TY_ENV > defaultEnv > 'stable' */
-export function resolveEnvName(explicit?: string): string {
-  return (
+/** 解析项目名：显式 > TY_PROJECT/TY_ENV > default:true > 唯一项目 > 报错并列出可选 */
+export function resolveProjectName(explicit?: string): string {
+  const ex =
     (explicit && explicit.trim()) ||
-    (process.env.TY_ENV && process.env.TY_ENV.trim()) ||
-    readEnvironmentsFile().defaultEnv ||
-    'stable'
+    (process.env.TY_PROJECT && process.env.TY_PROJECT.trim()) ||
+    (process.env.TY_ENV && process.env.TY_ENV.trim());
+  if (ex) return ex;
+  const names = listProjectNames();
+  const def = names.find((n) => readProjectConfig(n).default);
+  if (def) return def;
+  if (names.length === 1) return names[0];
+  throw new Error(
+    `未指定项目，且无默认项目。可用项目：${names.join(', ') || '(无)'}。` +
+      `用 --project <name>（或 --env）指定，或在某项目 config.json 设 "default": true。`
   );
 }
-
-/** 每环境密钥文件路径：.env.<name> */
-export function envFilePath(envName: string): string {
-  return path.join(ROOT_DIR, `.env.${envName}`);
-}
+/** 向后兼容别名 */
+export const resolveEnvName = resolveProjectName;
 
 /** 归一 authType：非法值回落到 'hmac' */
-function normalizeAuthType(raw: string | undefined, fallback: AuthType = 'hmac'): AuthType {
+export function normalizeAuthType(raw: string | undefined, fallback: AuthType = 'hmac'): AuthType {
   const t = (raw || '').trim().toLowerCase();
   if (t === 'none' || t === 'bearer' || t === 'hmac') return t;
   return fallback;
@@ -89,8 +110,7 @@ function normalizeAuthType(raw: string | undefined, fallback: AuthType = 'hmac')
 
 /** 按 authType 校验凭据齐全，缺失则抛出可诊断错误。none 不需要凭据。 */
 function assertCreds(
-  cfg: Pick<AppConfig, 'authType' | 'projectId' | 'projectSecret' | 'token'>,
-  envName: string
+  cfg: Pick<AppConfig, 'authType' | 'projectId' | 'projectSecret' | 'token' | 'project'>
 ): void {
   const missing: string[] = [];
   if (cfg.authType === 'hmac') {
@@ -101,120 +121,109 @@ function assertCreds(
   }
   if (missing.length) {
     throw new Error(
-      `环境 "${envName}"（authType=${cfg.authType}）缺少必填变量 ${missing.join(' / ')}。` +
-        `请在 ${envFilePath(envName)} 中配置（模板：cp .env.example .env.${envName}）。`
+      `项目 "${cfg.project}"（authType=${cfg.authType}）缺少必填变量 ${missing.join(' / ')}。` +
+        `请在 ${projectEnvFile(cfg.project)} 中配置（模板：cp scenarios/${cfg.project}/.env.example scenarios/${cfg.project}/.env）。`
     );
   }
 }
 
+/** 由「取值函数」构建配置。字段优先级：.env 覆盖 > config.json > 内置默认。 */
+function buildConfig(
+  project: string,
+  get: (k: string) => string | undefined,
+  requireCreds: boolean
+): AppConfig {
+  const pc = readProjectConfig(project);
+  const baseUrlRaw = get('BASE_URL') || pc.baseUrl || '';
+  const apiPrefixRaw = get('API_PREFIX') ?? pc.apiPrefix ?? '';
+  const authType = normalizeAuthType(get('AUTH_TYPE') || pc.authType);
+
+  const cfg: AppConfig = {
+    project,
+    projectDir: projectDirPath(project),
+    baseUrl: baseUrlRaw.replace(/\/+$/, ''),
+    apiPrefix: normalizePrefix(apiPrefixRaw),
+    authType,
+    projectId: (get('PROJECT_ID') || '').trim(),
+    projectSecret: (get('PROJECT_SECRET') || '').trim(),
+    token: (get('ACCESS_TOKEN') || get('TOKEN') || '').trim(),
+    timeoutMs: Number(get('HTTP_TIMEOUT_MS') || 30000),
+    debugSign: get('DEBUG_SIGN') === '1',
+  };
+  if (requireCreds) assertCreds(cfg);
+  return cfg;
+}
+
 /**
- * 读取配置。凭据仅来自本地 .env.<name>（不入库），非密端点/鉴权类型来自 environments.json。
- * 字段优先级：.env.<name> 覆盖 > environments.json > 内置默认。
+ * 读取配置。凭据仅来自项目本地 scenarios/<project>/.env（不入库），
+ * 非密端点/鉴权类型来自 scenarios/<project>/config.json。
  */
 export function loadConfig(opts: LoadConfigOptions = {}): AppConfig {
   const requireCreds = opts.requireCreds ?? true;
-  const envName = resolveEnvName(opts.env);
-
-  // 先加载该环境的密钥文件（存在才加载；dotenv 不覆盖已存在的 process.env 键）
-  const envFile = envFilePath(envName);
-  if (fs.existsSync(envFile)) {
-    loadDotenv({ path: envFile });
-  }
-  // 再以低优先级加载根 .env 作兜底（不覆盖上面已设的键）
-  const baseEnvFile = path.join(ROOT_DIR, '.env');
-  if (fs.existsSync(baseEnvFile)) {
-    loadDotenv({ path: baseEnvFile });
-  }
-
-  const envEntry = (readEnvironmentsFile().environments || {})[envName] || {};
-
-  // baseUrl / apiPrefix / authType：.env.<name> 覆盖 > environments.json > 内置默认
-  const baseUrlRaw = process.env.BASE_URL || envEntry.baseUrl || '';
-  const apiPrefixRaw = process.env.API_PREFIX ?? envEntry.apiPrefix ?? '';
-  const authType = normalizeAuthType(process.env.AUTH_TYPE || envEntry.authType);
-
-  const cfg: AppConfig = {
-    env: envName,
-    baseUrl: baseUrlRaw.replace(/\/+$/, ''),
-    apiPrefix: normalizePrefix(apiPrefixRaw),
-    authType,
-    projectId: (process.env.PROJECT_ID || '').trim(),
-    projectSecret: (process.env.PROJECT_SECRET || '').trim(),
-    token: (process.env.ACCESS_TOKEN || process.env.TOKEN || '').trim(),
-    timeoutMs: Number(process.env.HTTP_TIMEOUT_MS || 30000),
-    debugSign: process.env.DEBUG_SIGN === '1',
-  };
-  if (requireCreds) assertCreds(cfg, envName);
-  return cfg;
+  const project = resolveProjectName(opts.project ?? opts.env);
+  const envFile = projectEnvFile(project);
+  if (fs.existsSync(envFile)) loadDotenv({ path: envFile });
+  return buildConfig(project, (k) => process.env[k], requireCreds);
 }
 
 /**
- * 按环境构建配置，**不读写全局 process.env**（供常驻服务多环境切换用）。
- * 与 loadConfig 的差异：直接 dotenv.parse 指定 `.env.<name>`（高优先）+ 根 `.env`（兜底）到局部对象，
- * 避免 dotenv 不覆盖已存在键导致的“上一个环境凭据残留”。字段优先级同 loadConfig。
+ * 按项目构建配置，**不读写全局 process.env**（供常驻服务多项目切换用）。
+ * 直接 dotenv.parse 项目 `.env` 到局部对象，避免上一个项目凭据残留。
  */
-export function loadConfigForEnv(
-  envName: string,
+export function loadConfigForProject(
+  name: string,
   opts: { requireCreds?: boolean } = {}
 ): AppConfig {
   const requireCreds = opts.requireCreds ?? true;
-
-  // 根 .env 兜底（低优先），再用 .env.<name> 覆盖（高优先）
+  const project = resolveProjectName(name);
   const merged: Record<string, string> = {};
-  const baseEnvFile = path.join(ROOT_DIR, '.env');
-  if (fs.existsSync(baseEnvFile)) {
-    Object.assign(merged, parseDotenv(fs.readFileSync(baseEnvFile)));
-  }
-  const envFile = envFilePath(envName);
-  if (fs.existsSync(envFile)) {
-    Object.assign(merged, parseDotenv(fs.readFileSync(envFile)));
-  }
-
-  const envEntry = (readEnvironmentsFile().environments || {})[envName] || {};
-  const baseUrlRaw = merged.BASE_URL || envEntry.baseUrl || '';
-  const apiPrefixRaw = merged.API_PREFIX ?? envEntry.apiPrefix ?? '';
-  const authType = normalizeAuthType(merged.AUTH_TYPE || envEntry.authType);
-
-  const cfg: AppConfig = {
-    env: envName,
-    baseUrl: baseUrlRaw.replace(/\/+$/, ''),
-    apiPrefix: normalizePrefix(apiPrefixRaw),
-    authType,
-    projectId: (merged.PROJECT_ID || '').trim(),
-    projectSecret: (merged.PROJECT_SECRET || '').trim(),
-    token: (merged.ACCESS_TOKEN || merged.TOKEN || '').trim(),
-    timeoutMs: Number(merged.HTTP_TIMEOUT_MS || 30000),
-    debugSign: merged.DEBUG_SIGN === '1',
-  };
-  if (requireCreds) assertCreds(cfg, envName);
-  return cfg;
+  const envFile = projectEnvFile(project);
+  if (fs.existsSync(envFile)) Object.assign(merged, parseDotenv(fs.readFileSync(envFile)));
+  return buildConfig(project, (k) => merged[k], requireCreds);
 }
+/** 向后兼容别名 */
+export const loadConfigForEnv = loadConfigForProject;
 
-export interface EnvDetail {
+export interface ProjectDetail {
   name: string;
   baseUrl: string;
   apiPrefix: string;
   authType: AuthType;
-  /** 该环境的 .env.<name> 是否存在（仅看文件在不在，不读内容、不含密钥） */
+  /** 该项目 .env 是否存在（仅看文件在不在，不读内容、不含密钥） */
   hasCreds: boolean;
+  /** 该项目是否有 hooks.ts */
+  hasHooks: boolean;
+  isDefault: boolean;
 }
 
-/** 供前端/list 用：列出各环境的非密端点与凭据文件是否就绪（绝不返回密钥值） */
-export function listEnvironmentsDetailed(): {
-  defaultEnv: string;
-  current: string;
-  envs: EnvDetail[];
+/** 供前端/list 用：列出各项目的非密端点与凭据文件是否就绪（绝不返回密钥值） */
+export function listProjectsDetailed(): {
+  defaultProject: string | null;
+  current: string | null;
+  projects: ProjectDetail[];
 } {
-  const f = readEnvironmentsFile();
-  const entries = f.environments || {};
-  const envs: EnvDetail[] = Object.entries(entries).map(([name, e]) => ({
-    name,
-    baseUrl: e.baseUrl || '',
-    apiPrefix: e.apiPrefix ?? '',
-    authType: normalizeAuthType(e.authType),
-    hasCreds: fs.existsSync(envFilePath(name)),
-  }));
-  return { defaultEnv: f.defaultEnv || 'stable', current: resolveEnvName(), envs };
+  const names = listProjectNames();
+  const projects: ProjectDetail[] = names.map((name) => {
+    const pc = readProjectConfig(name);
+    return {
+      name,
+      baseUrl: pc.baseUrl || '',
+      apiPrefix: pc.apiPrefix ?? '',
+      authType: normalizeAuthType(pc.authType),
+      hasCreds: fs.existsSync(projectEnvFile(name)),
+      hasHooks: fs.existsSync(path.join(projectDirPath(name), 'hooks.ts')),
+      isDefault: !!pc.default,
+    };
+  });
+  const defaultProject =
+    projects.find((p) => p.isDefault)?.name || (names.length === 1 ? names[0] : null);
+  let current: string | null = null;
+  try {
+    current = resolveProjectName();
+  } catch {
+    current = null;
+  }
+  return { defaultProject, current, projects };
 }
 
 /** 前缀规整：空 -> ''；否则确保以 / 开头、不以 / 结尾 */

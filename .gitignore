@@ -1,7 +1,7 @@
 node_modules/
-.env
-.env.*
-!.env.example
+# 每项目密钥：scenarios/<project>/.env 不入库，仅保留 .env.example 模板
+**/.env
+!**/.env.example
 .state/
 *.log
 dist/

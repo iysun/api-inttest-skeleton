@@ -8,8 +8,8 @@
 
 ## 踩坑与机制（docs/notes/）
 
-- [多环境配置](notes/environments.md) — `environments.json`（非密端点/authType，入库）与 `.env.<name>`（密钥，gitignore）分工、`--env`/`TY_ENV`/defaultEnv 选择优先级、字段覆盖、如何加新环境。
+- [按项目组织](notes/projects.md) — `scenarios/<project>/` 自包含项目：`config.json`（非密端点/authType，入库）+ `.env`（密钥，gitignore）+ `provision.yaml` + `hooks.ts` 分工、`--project`/`TY_PROJECT`/default/唯一项目 选择优先级、字段覆盖、如何加新项目。
 - [鉴权与签名](notes/auth-and-signing.md) — 可插拔鉴权策略 `none`/`bearer`/`hmac`；「对确切发送字节鉴权」不变量、如何换成你的网关口径、`DEBUG_SIGN` 排查法。
 - [API_PREFIX 校准](notes/api-prefix-calibration.md) — 首次 provision 返回 404 时如何按环境调整网关前缀，以及按接口用 `ApiDef.prefix` 覆盖多服务前缀。
 - [统一响应封装](notes/response-envelope.md) — `{code,message,data}` 与成功码约定、冲突/幂等语义、常用点路径。
-- [幂等与铺底状态](notes/idempotency-and-state.md) — 业务主键固定前缀幂等，`.state/provision.json` 的写入与 `${state.*}` 复用。
+- [幂等与铺底状态](notes/idempotency-and-state.md) — 业务主键固定前缀幂等，`.state/<project>/provision.json` 的写入与 `${state.*}` 复用。

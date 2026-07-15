@@ -1,5 +1,6 @@
 # 通用示例场景：演示 vars / ${state.*} / save / assert / steps 链式引用。
-# 跑法：pnpm start run --env stable scenarios/stable/example.yaml
+# 跑法：pnpm start run scenarios/example/example.yaml
+#      （省略 --project 时会从路径 scenarios/example/ 自动推断项目）
 # ★ 接入你的项目后按需替换/删除。
 name: 示例：创建资源并查询详情
 
