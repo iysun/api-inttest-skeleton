@@ -137,7 +137,7 @@ function applyThemeDom(pref) {
   .btn-link { --bs-btn-color: var(--bs-body-color); --bs-btn-hover-color: var(--ctp-accent); }
 
   /* 运行按钮：移入 YAML 卡片头部右上；圆角与 ant-select 选择器统一为 6px */
-  .run-btn { border-radius: 6px; }
+  .run-btn { border-radius: 6px; font-variant-numeric: tabular-nums; }
   /* flex 子项截断辅助：让卡片标题在头部可省略号截断（Bootstrap 无内置 min-w-0） */
   .min-w-0 { min-width: 0; }
 
@@ -277,7 +277,10 @@ function applyThemeDom(pref) {
           placeholder="YAML 格式，运行时覆盖场景 YAML 里的 vars；可直接粘贴 vars: 块，或只粘贴里面缩进的键值行，例如：&#10;vars:&#10;  signFlowId: &quot;xxxxx&quot;"></textarea>
       </div>
     </collapse-card>
-    <div v-if="running" class="text-muted small">运行中… {{ selectedFile }}</div>
+    <div v-if="running && !selectedContent" class="text-muted small d-flex align-items-center gap-2">
+      <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+      运行中… {{ selectedFile }} {{ elapsedText }}
+    </div>
     <template v-else-if="errorMsg">
       <div class="alert alert-danger" style="white-space:pre-wrap">运行失败：{{ errorMsg }}</div>
       <div class="text-muted small">{{ runMs }}ms</div>
@@ -291,7 +294,10 @@ function applyThemeDom(pref) {
       <div class="text-muted small mb-3">项目 {{ runInfo.project }} → {{ runInfo.baseUrl }}{{ runInfo.apiPrefix }} · {{ runInfo.file }} · {{ runMs }}ms</div>
       <collapse-card v-if="selectedContent" title="YAML 源码" :open="false">
         <template #head-extra>
-          <button class="btn btn-primary btn-sm run-btn" :disabled="!canRun" @click="run" :title="runHint">重新运行</button>
+          <button class="btn btn-primary btn-sm run-btn" :disabled="!canRun" @click="run" :title="runHint">
+            <span v-if="running" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+            {{ running ? '运行中… ' + elapsedText : '重新运行' }}
+          </button>
         </template>
         <code-block :code="selectedContent" lang="yaml" :curl-fn="canCurl ? yamlCurl : null"></code-block>
       </collapse-card>
@@ -318,7 +324,10 @@ function applyThemeDom(pref) {
     <div v-else-if="previewError" class="alert alert-danger">预览失败：{{ previewError }}</div>
     <collapse-card v-else-if="selectedContent" :title="selectedFile" :open="true">
       <template #head-extra>
-        <button class="btn btn-primary btn-sm run-btn" :disabled="!canRun" @click="run" :title="runHint">运行</button>
+        <button class="btn btn-primary btn-sm run-btn" :disabled="!canRun" @click="run" :title="runHint">
+          <span v-if="running" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+          {{ running ? '运行中… ' + elapsedText : '运行' }}
+        </button>
       </template>
       <code-block :code="selectedContent" lang="yaml" :curl-fn="canCurl ? yamlCurl : null"></code-block>
     </collapse-card>
@@ -395,6 +404,7 @@ const app = createApp({
     const runInfo = ref({});
     const runMs = ref(0);
     const running = ref(false);
+    const elapsedText = ref(''); // 运行中实时耗时文案，如 "1.2s"
     const errorMsg = ref('');
     const varsOverrideText = ref(''); // 一行一个 key=value，运行时覆盖场景 YAML 的 vars（值按 JSON 尝试解析交给后端处理）
 
@@ -486,7 +496,11 @@ const app = createApp({
       running.value = true;
       errorMsg.value = '';
       report.value = null;
+      elapsedText.value = '0.0s';
       const t0 = performance.now();
+      const timer = setInterval(() => {
+        elapsedText.value = ((performance.now() - t0) / 1000).toFixed(1) + 's';
+      }, 100);
       try {
         const resp = await fetch('/api/run', {
           method: 'POST',
@@ -505,6 +519,7 @@ const app = createApp({
         runMs.value = Math.round(performance.now() - t0);
         errorMsg.value = String((e && e.message) || e);
       } finally {
+        clearInterval(timer);
         running.value = false;
       }
     }
@@ -540,7 +555,7 @@ const app = createApp({
     return {
       theme, themeOptions, projects, defaultProject, currentProjectName, scenarios, scenariosLoading, scenariosError,
       selectedFile, selectedContent, previewLoading, previewError, report, runInfo, runMs,
-      running, errorMsg, varsOverrideText, runHint, canRun, canCurl, passedCount, groupedScenarios,
+      running, elapsedText, errorMsg, varsOverrideText, runHint, canRun, canCurl, passedCount, groupedScenarios,
       isExpanded, toggleDir, displayUrl,
       selectFile, run, pretty, prettyReq, toCurl, yamlCurl,
     };
