@@ -380,7 +380,7 @@ import { usePersistedRef, readStored, writeStored } from './composables/usePersi
 import { usePrefersDark } from './composables/usePrefersDark.js';
 import { createElapsedTimer } from './composables/useElapsedTimer.js';
 
-const { createApp, ref, computed, watch, onMounted } = Vue;
+const { createApp, ref, reactive, computed, watch, onMounted } = Vue;
 
 /** JSON/字符串统一转文本，喂给 v-highlight */
 function pretty(v) {
@@ -480,12 +480,24 @@ const app = createApp({
     });
 
     // ===== 场景分组 helper =====
+    // 场景 file 所属目录（= groupedScenarios 里的 g.dir），无斜杠回退 '.'
+    function dirOfFile(file) { const i = file.lastIndexOf('/'); return i >= 0 ? file.slice(0, i) : '.'; }
     function isExpanded(dir) { return expandedDirs.value.has(dir); }
     function toggleDir(dir) {
       const next = new Set(expandedDirs.value); // 重建 Set 触发响应式更新
       next.has(dir) ? next.delete(dir) : next.add(dir);
       expandedDirs.value = next;
     }
+    // 激活 Tab 变化时，自动展开其所在项目分组（切 Tab / 刷新恢复都适用；已展开则不动，用户手动折的其它组不受影响）
+    watch(activeFile, (file) => {
+      if (!file) return;
+      const dir = dirOfFile(file);
+      if (!expandedDirs.value.has(dir)) {
+        const next = new Set(expandedDirs.value);
+        next.add(dir);
+        expandedDirs.value = next;
+      }
+    }, { immediate: true });
 
     // ===== 数据加载 =====
     async function loadProjects() {
@@ -513,14 +525,16 @@ const app = createApp({
     async function openTab(file) {
       const hit = tabs.value.find((t) => t.file === file);
       if (hit) { activeTabId.value = hit.id; return; }
-      const tab = {
+      // reactive（而非普通对象）：fetch 回来后对 tab 的写入须经代理才能触发重渲染，
+      // 否则预览会一直卡在「加载预览…」（run 走 activeTab 代理故不受影响）。
+      const tab = reactive({
         id: file, file, base: baseName(file),
         content: '', previewLoading: true, previewError: '',
         report: null, runInfo: {}, runMs: 0,
         running: false,
         timer: createElapsedTimer(), // 秒表挂 Tab 上 → 后台 Tab（面板已卸载）仍独立走表；elapsedText 从 tab.timer 读
         errorMsg: '', varsOverrideText: '',
-      };
+      });
       tabs.value.push(tab);
       activeTabId.value = tab.id;
       try {
