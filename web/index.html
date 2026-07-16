@@ -74,7 +74,30 @@ function applyThemeDom(pref) {
   body { overflow: hidden; }
   .app { display: flex; height: calc(100vh - 3.5rem); }
   .sidebar { width: 330px; flex-shrink: 0; overflow: auto; border-right: 1px solid var(--ctp-sidebar-border); background: var(--ctp-sidebar-bg); }
-  #out { flex: 1; overflow: auto; padding: 1.25rem; }
+  /* 主区：固定 Tab 条 + 可滚动主体（多 Tab 时 Tab 条不随内容滚动） */
+  #out { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .tab-body { flex: 1; overflow: auto; padding: 1.25rem; }
+
+  /* ===== Tab 条 ===== */
+  /* 已打开场景横排；active 用编辑器底色 + 底部 accent 条区分；多 Tab 溢出横向滚动（滚动条已主题化） */
+  .tab-strip {
+    display: flex; flex-shrink: 0; overflow-x: auto; overflow-y: hidden;
+    background: var(--ctp-titlebar-bg); border-bottom: 1px solid var(--ctp-sidebar-border);
+  }
+  .tab-item {
+    display: flex; align-items: center; gap: .4rem; flex: 0 0 auto; max-width: 220px;
+    padding: .4rem .5rem .4rem .75rem; font-size: .8rem; color: var(--bs-secondary-color); cursor: pointer;
+    border-right: 1px solid var(--ctp-sidebar-border); border-bottom: 2px solid transparent; user-select: none;
+  }
+  .tab-item:hover { background: var(--ctp-list-hover-bg); color: var(--ctp-list-hover-color); }
+  .tab-item.active { color: var(--bs-body-color); background: var(--ctp-editor-bg); border-bottom-color: var(--ctp-accent); }
+  .tab-item .tab-label { min-width: 0; }
+  .tab-item .tab-elapsed { font-variant-numeric: tabular-nums; font-size: .72rem; color: var(--bs-secondary-color); }
+  .tab-item .tab-close {
+    border: 0; background: transparent; line-height: 1; padding: 0 .15rem; font-size: 1rem;
+    color: var(--bs-secondary-color); border-radius: 3px; cursor: pointer;
+  }
+  .tab-item .tab-close:hover { color: var(--bs-danger); background: var(--ctp-list-active-bg); }
 
   /* ===== 侧栏：项目分组 ===== */
   /* 项目分组：每个目录一段，段间加分隔线 + 段内首缩进，凸显不同项目的边界 */
@@ -124,6 +147,8 @@ function applyThemeDom(pref) {
   .sidebar .list-group-item.active {
     background: var(--ctp-list-active-bg); color: var(--ctp-list-active-color); box-shadow: inset 2px 0 0 var(--ctp-accent);
   }
+  /* 已打开但非激活的场景：左侧弱竖条，提示「有 Tab 开着」 */
+  .sidebar .list-group-item.tab-open:not(.active) { box-shadow: inset 2px 0 0 var(--ctp-scrollbar-thumb); }
 
   /* ===== 按钮 ===== */
   /* 运行按钮：Catppuccin 主按钮（accent 底 + 对比前景） */
@@ -242,7 +267,7 @@ function applyThemeDom(pref) {
     <div v-else>
       <div v-for="g in groupedScenarios" :key="g.dir" class="proj-group">
         <button type="button" class="dir px-3 py-2"
-          :class="{ 'dir-active': g.files.some((f) => f.file === selectedFile) }"
+          :class="{ 'dir-active': g.files.some((f) => f.file === activeFile) }"
           :aria-expanded="isExpanded(g.dir)" @click="toggleDir(g.dir)">
           <span class="caret">▾</span>
           <span class="dir-meta">
@@ -261,8 +286,8 @@ function applyThemeDom(pref) {
         <div v-show="isExpanded(g.dir)" class="list-group list-group-flush">
           <button v-for="f in g.files" :key="f.file" type="button"
             class="list-group-item list-group-item-action py-2 small"
-            :class="{ active: f.file === selectedFile }"
-            :title="f.base + (f.name ? '\n' + f.name : '')" @click="selectFile(f.file)">
+            :class="{ active: f.file === activeFile, 'tab-open': openFiles.has(f.file) }"
+            :title="f.base + (f.name ? '\n' + f.name : '')" @click="openTab(f.file)">
             <div class="text-truncate">{{ f.base }}</div>
             <div v-if="f.name" class="scen-desc text-truncate">{{ f.name }}</div>
           </button>
@@ -271,67 +296,75 @@ function applyThemeDom(pref) {
     </div>
   </aside>
   <main id="out">
-    <collapse-card v-if="selectedFile" title="覆盖变量" :open="false">
-      <div class="p-3">
-        <textarea class="form-control form-control-sm font-monospace" rows="5" v-model="varsOverrideText"
-          placeholder="YAML 格式，运行时覆盖场景 YAML 里的 vars；可直接粘贴 vars: 块，或只粘贴里面缩进的键值行，例如：&#10;vars:&#10;  signFlowId: &quot;xxxxx&quot;"></textarea>
-      </div>
-    </collapse-card>
-    <div v-if="running && !selectedContent" class="text-muted small d-flex align-items-center gap-2">
-      <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-      运行中… {{ selectedFile }} {{ elapsedText }}
-    </div>
-    <template v-else-if="errorMsg">
-      <div class="alert alert-danger" style="white-space:pre-wrap">运行失败：{{ errorMsg }}</div>
-      <div class="text-muted small">{{ runMs }}ms</div>
-    </template>
-    <template v-else-if="report">
-      <div class="alert d-flex align-items-center" :class="report.ok ? 'alert-success' : 'alert-danger'">
-        <span class="fw-semibold">{{ report.ok ? '✔ 通过' : '✘ 失败' }}</span>
-        <span class="ms-2">{{ report.name }}</span>
-        <span class="badge ms-auto" :class="report.ok ? 'text-bg-success' : 'text-bg-danger'">{{ passedCount }}/{{ report.steps.length }} 步</span>
-      </div>
-      <div class="text-muted small mb-3">项目 {{ runInfo.project }} → {{ runInfo.baseUrl }}{{ runInfo.apiPrefix }} · {{ runInfo.file }} · {{ runMs }}ms</div>
-      <collapse-card v-if="selectedContent" title="YAML 源码" :open="false">
-        <template #head-extra>
-          <button class="btn btn-primary btn-sm run-btn" :disabled="!canRun" @click="run" :title="runHint">
-            <span v-if="running" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-            {{ running ? '运行中… ' + elapsedText : '重新运行' }}
-          </button>
+    <!-- Tab 条：已打开场景横排，点切换、× 关闭（组件 tab-bar，样式在下方 .tab-strip 全局类） -->
+    <tab-bar :tabs="tabs" :active-id="activeTabId" @activate="activeTabId = $event" @close="closeTab"></tab-bar>
+    <div class="tab-body">
+      <!-- 只渲染激活 Tab；:key 挂在真实 wrapper 上，切 Tab 触发子树重建（局部折叠态回默认）。
+           后台 Tab 虽卸载，但计时器与 fetch 挂在 Tab 对象上继续跑，切回从 tab.report 重建。 -->
+      <div v-if="activeTab" :key="activeTab.id" class="tab-panel">
+        <collapse-card title="覆盖变量" :open="false">
+          <div class="p-3">
+            <textarea class="form-control form-control-sm font-monospace" rows="5" v-model="activeTab.varsOverrideText"
+              placeholder="YAML 格式，运行时覆盖场景 YAML 里的 vars；可直接粘贴 vars: 块，或只粘贴里面缩进的键值行，例如：&#10;vars:&#10;  signFlowId: &quot;xxxxx&quot;"></textarea>
+          </div>
+        </collapse-card>
+        <div v-if="activeTab.running && !activeTab.content" class="text-muted small d-flex align-items-center gap-2">
+          <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+          运行中… {{ activeTab.file }} {{ activeTab.elapsedText }}
+        </div>
+        <template v-else-if="activeTab.errorMsg">
+          <div class="alert alert-danger" style="white-space:pre-wrap">运行失败：{{ activeTab.errorMsg }}</div>
+          <div class="text-muted small">{{ activeTab.runMs }}ms</div>
         </template>
-        <code-block :code="selectedContent" lang="yaml" :curl-fn="canCurl ? yamlCurl : null"></code-block>
-      </collapse-card>
-      <div v-for="(s, i) in report.steps" :key="i" class="card mb-2">
-        <div class="card-header d-flex align-items-center gap-2 py-2">
-          <span class="badge" :class="s.ok ? 'text-bg-success' : 'text-bg-danger'">{{ s.ok ? '✔' : '✘' }}</span>
-          <strong>{{ s.id }}</strong>
-          <span class="text-muted small">[{{ s.api }}]</span>
-          <span class="ms-auto text-muted small">code={{ s.code }} · http={{ s.httpStatus }}</span>
-        </div>
-        <div v-if="s.asserts && s.asserts.length" class="card-body py-2">
-          <div v-for="(a, j) in s.asserts" :key="j" class="small" :class="a.ok ? 'assert-ok' : 'assert-no'">{{ a.ok ? '·' : '✘' }} {{ a.expr }}{{ a.ok ? '' : '  ' + (a.detail || '') }}</div>
-        </div>
-        <div v-if="s.error" class="card-body py-2 text-danger small">! {{ s.error }}</div>
-        <collapse-card title="request" :open="false" inline>
-          <code-block :code="prettyReq(s.request)" lang="json" :curl="toCurl(s.request)"></code-block>
-        </collapse-card>
-        <collapse-card title="response" :open="!s.ok" inline>
-          <code-block :code="pretty(s.response)" lang="json"></code-block>
+        <template v-else-if="activeTab.report">
+          <div class="alert d-flex align-items-center" :class="activeTab.report.ok ? 'alert-success' : 'alert-danger'">
+            <span class="fw-semibold">{{ activeTab.report.ok ? '✔ 通过' : '✘ 失败' }}</span>
+            <span class="ms-2">{{ activeTab.report.name }}</span>
+            <span class="badge ms-auto" :class="activeTab.report.ok ? 'text-bg-success' : 'text-bg-danger'">{{ passedCount(activeTab.report) }}/{{ activeTab.report.steps.length }} 步</span>
+          </div>
+          <div class="text-muted small mb-3">项目 {{ activeTab.runInfo.project }} → {{ activeTab.runInfo.baseUrl }}{{ activeTab.runInfo.apiPrefix }} · {{ activeTab.runInfo.file }} · {{ activeTab.runMs }}ms</div>
+          <collapse-card v-if="activeTab.content" title="YAML 源码" :open="false">
+            <template #head-extra>
+              <button class="btn btn-primary btn-sm run-btn" :disabled="!canRunTab(activeTab)" @click="run(activeTab)" :title="runHintTab(activeTab)">
+                <span v-if="activeTab.running" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                {{ activeTab.running ? '运行中… ' + activeTab.elapsedText : '重新运行' }}
+              </button>
+            </template>
+            <code-block :code="activeTab.content" lang="yaml" :curl-fn="canCurlTab(activeTab) ? () => yamlCurl(activeTab) : null"></code-block>
+          </collapse-card>
+          <div v-for="(s, i) in activeTab.report.steps" :key="i" class="card mb-2">
+            <div class="card-header d-flex align-items-center gap-2 py-2">
+              <span class="badge" :class="s.ok ? 'text-bg-success' : 'text-bg-danger'">{{ s.ok ? '✔' : '✘' }}</span>
+              <strong>{{ s.id }}</strong>
+              <span class="text-muted small">[{{ s.api }}]</span>
+              <span class="ms-auto text-muted small">code={{ s.code }} · http={{ s.httpStatus }}</span>
+            </div>
+            <div v-if="s.asserts && s.asserts.length" class="card-body py-2">
+              <div v-for="(a, j) in s.asserts" :key="j" class="small" :class="a.ok ? 'assert-ok' : 'assert-no'">{{ a.ok ? '·' : '✘' }} {{ a.expr }}{{ a.ok ? '' : '  ' + (a.detail || '') }}</div>
+            </div>
+            <div v-if="s.error" class="card-body py-2 text-danger small">! {{ s.error }}</div>
+            <collapse-card title="request" :open="false" inline>
+              <code-block :code="prettyReq(s.request)" lang="json" :curl="toCurl(s.request)"></code-block>
+            </collapse-card>
+            <collapse-card title="response" :open="!s.ok" inline>
+              <code-block :code="pretty(s.response)" lang="json"></code-block>
+            </collapse-card>
+          </div>
+        </template>
+        <div v-else-if="activeTab.previewLoading" class="text-muted small">加载预览… {{ activeTab.file }}</div>
+        <div v-else-if="activeTab.previewError" class="alert alert-danger">预览失败：{{ activeTab.previewError }}</div>
+        <collapse-card v-else-if="activeTab.content" :title="activeTab.file" :open="true">
+          <template #head-extra>
+            <button class="btn btn-primary btn-sm run-btn" :disabled="!canRunTab(activeTab)" @click="run(activeTab)" :title="runHintTab(activeTab)">
+              <span v-if="activeTab.running" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+              {{ activeTab.running ? '运行中… ' + activeTab.elapsedText : '运行' }}
+            </button>
+          </template>
+          <code-block :code="activeTab.content" lang="yaml" :curl-fn="canCurlTab(activeTab) ? () => yamlCurl(activeTab) : null"></code-block>
         </collapse-card>
       </div>
-    </template>
-    <div v-else-if="previewLoading" class="text-muted small">加载预览… {{ selectedFile }}</div>
-    <div v-else-if="previewError" class="alert alert-danger">预览失败：{{ previewError }}</div>
-    <collapse-card v-else-if="selectedContent" :title="selectedFile" :open="true">
-      <template #head-extra>
-        <button class="btn btn-primary btn-sm run-btn" :disabled="!canRun" @click="run" :title="runHint">
-          <span v-if="running" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-          {{ running ? '运行中… ' + elapsedText : '运行' }}
-        </button>
-      </template>
-      <code-block :code="selectedContent" lang="yaml" :curl-fn="canCurl ? yamlCurl : null"></code-block>
-    </collapse-card>
-    <div v-else class="text-muted text-center mt-5">选择左侧一个场景，在卡片右上点「运行」。</div>
+      <div v-else class="text-muted text-center mt-5">选择左侧一个场景打开标签页，在卡片右上点「运行」。</div>
+    </div>
   </main>
 </div>
 </div>
@@ -342,6 +375,7 @@ function applyThemeDom(pref) {
 import CollapseCard from './components/collapse-card.js';
 import CodeBlock from './components/code-block.js';
 import AntSelect from './components/ant-select.js';
+import TabBar from './components/tab-bar.js';
 
 const { createApp, ref, computed, watch, onMounted } = Vue;
 
@@ -382,6 +416,7 @@ const app = createApp({
   setup() {
     // ===== state =====
     const THEME_KEY = 'tyit-theme';
+    const TABS_KEY = 'tyit-tabs'; // 持久化已打开 Tab（仅 file 列表 + 激活项，不存运行结果）
     const mql = window.matchMedia('(prefers-color-scheme: dark)');
 
     const theme = ref(localStorage.getItem(THEME_KEY) || 'auto');
@@ -396,37 +431,36 @@ const app = createApp({
     const scenariosLoading = ref(true);
     const scenariosError = ref('');
     const expandedDirs = ref(new Set()); // 默认全部折叠；点标题展开对应项目分组
-    const selectedFile = ref(null);
-    const selectedContent = ref('');
-    const previewLoading = ref(false);
-    const previewError = ref('');
-    const report = ref(null);
-    const runInfo = ref({});
-    const runMs = ref(0);
-    const running = ref(false);
-    const elapsedText = ref(''); // 运行中实时耗时文案，如 "1.2s"
-    const errorMsg = ref('');
-    const varsOverrideText = ref(''); // 一行一个 key=value，运行时覆盖场景 YAML 的 vars（值按 JSON 尝试解析交给后端处理）
+    // 多 Tab：每个 Tab 是一个已打开的场景实例，自带预览/运行/耗时/覆盖变量状态，可并发独立运行。
+    // 按 file 去重（file 即 tab.id），再次点击已打开场景只聚焦不新开；仅内存态，刷新不保留。
+    const tabs = ref([]);          // Tab 对象数组，形状见 openTab
+    const activeTabId = ref(null); // 当前激活的 tab.id（= file），无 Tab 时为 null
 
-    // ===== computed =====
-    // 当前项目：由所选场景的路径推断（/api/scenarios 已按后端 inferProject 回填 f.project），
-    // 与 CLI 一致，不再手选；缺省回退默认项目。
-    const currentProjectName = computed(() => {
-      const f = scenarios.value.find((x) => x.file === selectedFile.value);
-      return (f && f.project) || defaultProject.value || '';
-    });
-    const currentProject = computed(() => projects.value.find((p) => p.name === currentProjectName.value));
-    const canRun = computed(() => !!selectedFile.value && !!currentProject.value && !!currentProject.value.hasCreds && !running.value);
-    const canCurl = computed(() => !!currentProject.value && !!currentProject.value.hasCreds);
-    // 运行按钮 hover 提示：未选场景 / 缺凭据时说明原因（去掉 navbar 指示后的可发现性补偿）
-    const runHint = computed(() => {
-      if (!selectedFile.value) return '先在左侧选择一个场景';
-      const p = currentProject.value;
+    // ===== computed / helpers =====
+    // 当前激活 Tab 与其 file；openFiles 供侧栏标记「哪些场景已打开」。
+    const activeTab = computed(() => tabs.value.find((t) => t.id === activeTabId.value) || null);
+    const activeFile = computed(() => (activeTab.value ? activeTab.value.file : null));
+    const openFiles = computed(() => new Set(tabs.value.map((t) => t.file)));
+
+    // 场景文件短名（侧栏同款；用作 Tab 标题）
+    function baseName(file) { const i = file.lastIndexOf('/'); return i >= 0 ? file.slice(i + 1) : file; }
+    // 由场景路径推断所属项目（/api/scenarios 已按后端 inferProject 回填 f.project），缺省回退默认项目。
+    function projectOfFile(file) {
+      const f = scenarios.value.find((x) => x.file === file);
+      const name = (f && f.project) || defaultProject.value || '';
+      return projects.value.find((p) => p.name === name);
+    }
+    // 派生逻辑改为「传入 tab 的纯函数」：单实例时是 computed，多 Tab 下每个面板各自求值。
+    function canRunTab(t) { const p = projectOfFile(t.file); return !!t.file && !!p && !!p.hasCreds && !t.running; }
+    function canCurlTab(t) { const p = projectOfFile(t.file); return !!p && !!p.hasCreds; }
+    // 运行按钮 hover 提示：缺凭据/无法定项目时说明原因（去掉 navbar 指示后的可发现性补偿）
+    function runHintTab(t) {
+      const p = projectOfFile(t.file);
       if (!p) return '无法确定项目';
       if (!p.hasCreds) return `项目 ${p.name} 缺凭据（scenarios/${p.name}/.env）`;
       return `运行 → ${p.name}`;
-    });
-    const passedCount = computed(() => (report.value ? report.value.steps.filter((s) => s.ok).length : 0));
+    }
+    function passedCount(report) { return report ? report.steps.filter((s) => s.ok).length : 0; }
     // baseUrl 显示助手：去掉 http(s):// 前缀以少占位（完整地址放 title 提示里）
     function displayUrl(u) { return (u || '').replace(/^https?:\/\//, ''); }
     const groupedScenarios = computed(() => {
@@ -473,66 +507,111 @@ const app = createApp({
         scenariosLoading.value = false;
       }
     }
-    async function selectFile(file) {
-      selectedFile.value = file;
-      selectedContent.value = '';
-      report.value = null;
-      errorMsg.value = '';
-      previewError.value = '';
-      previewLoading.value = true;
+    // 打开或聚焦一个场景 Tab：已打开则只切激活（不重拉），否则新建并异步拉取预览。
+    async function openTab(file) {
+      const hit = tabs.value.find((t) => t.file === file);
+      if (hit) { activeTabId.value = hit.id; return; }
+      const tab = {
+        id: file, file, base: baseName(file),
+        content: '', previewLoading: true, previewError: '',
+        report: null, runInfo: {}, runMs: 0,
+        running: false, elapsedText: '', t0: 0, timerId: null, // 计时器/起点挂 Tab 上 → 后台 Tab 独立计时
+        errorMsg: '', varsOverrideText: '',
+      };
+      tabs.value.push(tab);
+      activeTabId.value = tab.id;
       try {
         const r = await fetch('/api/scenario?file=' + encodeURIComponent(file)).then((x) => x.json());
         if (r.content == null) throw new Error(r.error || '无内容');
-        selectedContent.value = r.content;
+        tab.content = r.content;
       } catch (e) {
-        previewError.value = String((e && e.message) || e);
+        tab.previewError = String((e && e.message) || e); // 拉取失败：Tab 保留显示错误，用户可自行关闭
       } finally {
-        previewLoading.value = false;
+        tab.previewLoading = false; // fetch 期间被关也无妨（写到孤儿对象上）
+      }
+    }
+    // 关闭 Tab：在跑则先清计时器；关的是激活 Tab 时，右邻优先、否则左邻、否则回空态。
+    function closeTab(id) {
+      const i = tabs.value.findIndex((t) => t.id === id);
+      if (i < 0) return;
+      clearInterval(tabs.value[i].timerId);
+      const wasActive = activeTabId.value === id;
+      tabs.value.splice(i, 1);
+      if (wasActive) {
+        const next = tabs.value[i] || tabs.value[i - 1] || null;
+        activeTabId.value = next ? next.id : null;
       }
     }
     // ===== 运行与 curl =====
-    async function run() {
-      if (!selectedFile.value) return;
-      running.value = true;
-      errorMsg.value = '';
-      report.value = null;
-      elapsedText.value = '0.0s';
-      const t0 = performance.now();
-      const timer = setInterval(() => {
-        elapsedText.value = ((performance.now() - t0) / 1000).toFixed(1) + 's';
+    // Tab 作用域运行：所有状态读写与计时器都挂在传入的 tab 代理上（非共享 ref），
+    // 故切到别的 Tab 后后台 Tab 仍独立计时、结果落到自己身上，多 Tab 可真正并发。
+    async function run(tab) {
+      tab = tab || activeTab.value;
+      if (!tab || !tab.file || tab.running) return; // 双击防抖
+      tab.running = true;
+      tab.errorMsg = '';
+      tab.report = null;
+      tab.elapsedText = '0.0s';
+      tab.t0 = performance.now();
+      clearInterval(tab.timerId);
+      tab.timerId = setInterval(() => {
+        tab.elapsedText = ((performance.now() - tab.t0) / 1000).toFixed(1) + 's';
       }, 100);
       try {
         const resp = await fetch('/api/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file: selectedFile.value, varsYaml: varsOverrideText.value }),
+          body: JSON.stringify({ file: tab.file, varsYaml: tab.varsOverrideText }),
         });
         const data = await resp.json();
-        runMs.value = Math.round(performance.now() - t0);
+        tab.runMs = Math.round(performance.now() - tab.t0);
         if (!resp.ok) {
-          errorMsg.value = data.error || `HTTP ${resp.status}`;
+          tab.errorMsg = data.error || `HTTP ${resp.status}`;
           return;
         }
-        report.value = data.report;
-        runInfo.value = { project: data.project, baseUrl: data.baseUrl, apiPrefix: data.apiPrefix, file: data.file };
+        tab.report = data.report;
+        tab.runInfo = { project: data.project, baseUrl: data.baseUrl, apiPrefix: data.apiPrefix, file: data.file };
       } catch (e) {
-        runMs.value = Math.round(performance.now() - t0);
-        errorMsg.value = String((e && e.message) || e);
+        tab.runMs = Math.round(performance.now() - tab.t0);
+        tab.errorMsg = String((e && e.message) || e);
       } finally {
-        clearInterval(timer);
-        running.value = false;
+        clearInterval(tab.timerId);
+        tab.timerId = null;
+        tab.running = false;
       }
     }
 
-    /** 拉取当前场景每步的请求元数据，用 toCurl 拼成多步 curl（供 YAML 块「复制为 curl」） */
-    async function yamlCurl() {
-      const file = selectedFile.value;
+    /** 拉取指定 Tab 场景每步的请求元数据，用 toCurl 拼成多步 curl（供 YAML 块「复制为 curl」） */
+    async function yamlCurl(tab) {
+      const file = tab && tab.file;
       if (!file) throw new Error('未选择场景');
       const r = await fetch('/api/curl?file=' + encodeURIComponent(file));
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
       return (data.steps || []).map((s) => `# ${s.id} [${s.api}]\n${toCurl(s.request)}`).join('\n\n');
     }
+
+    // ===== Tab 持久化 =====
+    /* 刷新后恢复已打开的 Tab：只存 file 列表 + 激活项（不存运行结果）。恢复时对每个仍存在的
+       场景走 openTab 重新拉预览，再把激活项设回原来的 Tab。 */
+    function restoreTabs() {
+      let saved;
+      try { saved = JSON.parse(localStorage.getItem(TABS_KEY) || 'null'); } catch (e) { saved = null; }
+      if (!saved || !Array.isArray(saved.files)) return;
+      const known = new Set(scenarios.value.map((s) => s.file)); // 过滤掉已删除/改名的场景
+      for (const file of saved.files) {
+        if (known.has(file)) openTab(file); // 同步 push 保序，预览异步补齐（不 await）
+      }
+      if (saved.active && tabs.value.some((t) => t.file === saved.active)) {
+        activeTabId.value = saved.active;
+      }
+    }
+    // Tab 列表/激活项变化即写回（getter 只读 file，故运行态 toggle 不触发多余写入）
+    watch(
+      () => ({ files: tabs.value.map((t) => t.file), active: activeTabId.value }),
+      (v) => { try { localStorage.setItem(TABS_KEY, JSON.stringify(v)); } catch (e) { /* localStorage 不可用则仅本次生效 */ } },
+      { deep: true },
+    );
 
     // ===== 主题 =====
     /* 设 data-bs-theme + 切代码高亮主题；watch 持久化，auto 档跟随系统。实际计算逻辑复用 head
@@ -546,18 +625,19 @@ const app = createApp({
     });
     mql.addEventListener('change', () => { if (theme.value === 'auto') applyTheme('auto'); });
 
-    onMounted(() => {
+    onMounted(async () => {
       applyTheme(theme.value);
       loadProjects();
-      loadScenarios();
+      await loadScenarios(); // 先拿到场景清单，再据此校验并恢复已打开 Tab
+      restoreTabs();
     });
 
     return {
-      theme, themeOptions, projects, defaultProject, currentProjectName, scenarios, scenariosLoading, scenariosError,
-      selectedFile, selectedContent, previewLoading, previewError, report, runInfo, runMs,
-      running, elapsedText, errorMsg, varsOverrideText, runHint, canRun, canCurl, passedCount, groupedScenarios,
-      isExpanded, toggleDir, displayUrl,
-      selectFile, run, pretty, prettyReq, toCurl, yamlCurl,
+      theme, themeOptions, projects, defaultProject, scenarios, scenariosLoading, scenariosError,
+      tabs, activeTabId, activeTab, activeFile, openFiles,
+      groupedScenarios, isExpanded, toggleDir, displayUrl,
+      openTab, closeTab, run, yamlCurl, canRunTab, canCurlTab, runHintTab, passedCount, baseName,
+      pretty, prettyReq, toCurl,
     };
   },
 });
@@ -571,6 +651,7 @@ app.directive('highlight', {
 app.component('collapse-card', CollapseCard);
 app.component('code-block', CodeBlock);
 app.component('ant-select', AntSelect);
+app.component('tab-bar', TabBar);
 
 app.mount('#app');
 </script>
