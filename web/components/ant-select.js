@@ -1,4 +1,7 @@
 import { CHECK_ICON } from './icons.js';
+import { useClickOutside } from '../composables/useClickOutside.js';
+
+const { ref, computed, watch } = Vue;
 
 /** Ant-Design 风格单选下拉：替代原生 select，得到可定制的圆角浮层/悬浮态/选中态。
     用法 <ant-select v-model="x" :options="[{value,label}]">。支持键盘（↑↓ 移动、Enter 选中、Esc 关闭）、
@@ -10,35 +13,39 @@ export default {
     placeholder: { type: String, default: '请选择' },
   },
   emits: ['update:modelValue'],
-  data() { return { open: false, activeValue: this.modelValue }; },
-  computed: {
-    currentLabel() {
-      const o = this.options.find((x) => x.value === this.modelValue);
-      return o ? o.label : this.placeholder;
-    },
-  },
-  methods: {
-    toggle() { this.open ? this.close() : this.openList(); },
-    openList() { this.open = true; this.activeValue = this.modelValue; },
-    close() { this.open = false; },
-    choose(v) { this.$emit('update:modelValue', v); this.close(); },
-    onKey(e) {
+  setup(props, { emit }) {
+    const root = ref(null);
+    const open = ref(false);
+    const activeValue = ref(props.modelValue);
+
+    const currentLabel = computed(() => {
+      const o = props.options.find((x) => x.value === props.modelValue);
+      return o ? o.label : props.placeholder;
+    });
+
+    function toggle() { open.value ? close() : openList(); }
+    function openList() { open.value = true; activeValue.value = props.modelValue; }
+    function close() { open.value = false; }
+    function choose(v) { emit('update:modelValue', v); close(); }
+    function onKey(e) {
       const keys = ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Escape'];
       if (!keys.includes(e.key)) return;
       e.preventDefault();
-      if (e.key === 'Escape') return this.close();
-      if (!this.open) { if (e.key !== 'Escape') this.openList(); return; }
-      if (e.key === 'Enter' || e.key === ' ') return this.choose(this.activeValue);
-      const vals = this.options.map((o) => o.value);
-      let i = vals.indexOf(this.activeValue);
+      if (e.key === 'Escape') return close();
+      if (!open.value) { if (e.key !== 'Escape') openList(); return; }
+      if (e.key === 'Enter' || e.key === ' ') return choose(activeValue.value);
+      const vals = props.options.map((o) => o.value);
+      let i = vals.indexOf(activeValue.value);
       i = e.key === 'ArrowDown' ? Math.min(vals.length - 1, i + 1) : Math.max(0, i - 1);
-      this.activeValue = vals[i];
-    },
-    onDocClick(e) { if (this.open && this.$refs.root && !this.$refs.root.contains(e.target)) this.close(); },
+      activeValue.value = vals[i];
+    }
+
+    // 点击面板外收起（捕获相位，先于内部 stopPropagation）；只在打开时才收，避免多余触发
+    useClickOutside(root, () => { if (open.value) close(); });
+    watch(() => props.modelValue, (v) => { activeValue.value = v; });
+
+    return { root, open, activeValue, currentLabel, toggle, choose, onKey };
   },
-  watch: { modelValue(v) { this.activeValue = v; } },
-  mounted() { document.addEventListener('click', this.onDocClick, true); },
-  unmounted() { document.removeEventListener('click', this.onDocClick, true); },
   template: `
     <div class="ant-select" :class="{ 'ant-select-open': open }" ref="root">
       <div class="ant-select-selector" tabindex="0" role="combobox" :aria-expanded="open"

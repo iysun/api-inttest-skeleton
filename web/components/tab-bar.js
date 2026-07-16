@@ -3,7 +3,7 @@
     纯展示组件，Tab 数据与激活态由父级持有；样式复用 index.html 的 .tab-strip/.tab-item 全局类。 */
 export default {
   props: {
-    tabs: { type: Array, default: () => [] }, // [{ id, file, base, running, elapsedText }]
+    tabs: { type: Array, default: () => [] }, // [{ id, file, base, running, timer:{ elapsedText } }]
     activeId: { default: null },               // 当前激活的 tab.id
   },
   emits: ['activate', 'close'],
@@ -13,7 +13,7 @@ export default {
         :title="t.file" @click="$emit('activate', t.id)">
         <span v-if="t.running" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
         <span class="tab-label text-truncate">{{ t.base }}</span>
-        <span v-if="t.running" class="tab-elapsed">{{ t.elapsedText }}</span>
+        <span v-if="t.running" class="tab-elapsed">{{ t.timer.elapsedText }}</span>
         <button type="button" class="tab-close" title="关闭" @click.stop="$emit('close', t.id)">×</button>
       </div>
     </div>

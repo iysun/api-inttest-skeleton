@@ -1,27 +1,7 @@
 import { CHECK_ICON } from './icons.js';
+import { useClipboard } from '../composables/useClipboard.js';
 
-/** 复制文本到剪贴板：优先 Clipboard API（127.0.0.1 为安全上下文），失败回退 execCommand */
-async function copyText(text) {
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch (e) { /* 落到 execCommand 回退 */ }
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
-  } catch (e) {
-    return false;
-  }
-}
+const { computed } = Vue;
 
 /** 代码块 + 右上角复制动作：复制原文；curl 非空时多一个「复制为 curl」按钮 */
 export default {
@@ -31,24 +11,22 @@ export default {
     curl: { type: String, default: '' },
     curlFn: { type: Function, default: null },
   },
-  data() { return { copied: '' }; },
-  computed: {
-    hasCurl() { return !!this.curl || !!this.curlFn; },
-  },
-  methods: {
-    async doCopy(which) {
+  setup(props) {
+    const { copied, copy } = useClipboard();
+    const hasCurl = computed(() => !!props.curl || !!props.curlFn);
+
+    async function doCopy(which) {
       let text;
       if (which === 'curl') {
-        try { text = this.curlFn ? await this.curlFn() : this.curl; }
+        try { text = props.curlFn ? await props.curlFn() : props.curl; }
         catch (e) { window.alert('生成 curl 失败：' + ((e && e.message) || e)); return; }
       } else {
-        text = this.code;
+        text = props.code;
       }
-      const ok = await copyText(text);
-      if (!ok) return;
-      this.copied = which;
-      setTimeout(() => { if (this.copied === which) this.copied = ''; }, 1200);
-    },
+      await copy(text, which); // 复制成功即 copied=which，1.2s 后自动复原
+    }
+
+    return { copied, hasCurl, doCopy };
   },
   template: `
     <div class="code-wrap">

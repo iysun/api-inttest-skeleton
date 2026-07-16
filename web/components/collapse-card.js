@@ -1,3 +1,5 @@
+const { ref } = Vue;
+
 /** 折叠卡片：默认 card 样式；inline=true 走步骤内 border-top 小样式（request/response） */
 export default {
   props: {
@@ -5,7 +7,10 @@ export default {
     open: { type: Boolean, default: true },
     inline: { type: Boolean, default: false },
   },
-  data() { return { show: this.open }; },
+  setup(props) {
+    const show = ref(props.open); // 仅初值取自 props.open；后续本地 toggle，不随 props 变化
+    return { show };
+  },
   template: `
     <div v-if="inline" class="border-top">
       <button class="btn btn-link btn-sm text-decoration-none px-3 py-1 d-flex align-items-center gap-2"

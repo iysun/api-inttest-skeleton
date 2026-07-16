@@ -253,7 +253,7 @@ function applyThemeDom(pref) {
 <body>
 <div id="app" v-cloak>
 <nav class="navbar bg-body-tertiary border-bottom px-3">
-  <span class="navbar-brand mb-0 h1 fs-6">接口集测 · 场景运行控制台</span>
+  <span class="navbar-brand mb-0 h1 fs-6">场景运行控制台</span>
   <div class="d-flex align-items-center gap-2 ms-auto">
     <label class="text-muted small mb-0">主题</label>
     <ant-select v-model="theme" :options="themeOptions"></ant-select>
@@ -310,7 +310,7 @@ function applyThemeDom(pref) {
         </collapse-card>
         <div v-if="activeTab.running && !activeTab.content" class="text-muted small d-flex align-items-center gap-2">
           <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-          运行中… {{ activeTab.file }} {{ activeTab.elapsedText }}
+          运行中… {{ activeTab.file }} {{ activeTab.timer.elapsedText }}
         </div>
         <template v-else-if="activeTab.errorMsg">
           <div class="alert alert-danger" style="white-space:pre-wrap">运行失败：{{ activeTab.errorMsg }}</div>
@@ -327,7 +327,7 @@ function applyThemeDom(pref) {
             <template #head-extra>
               <button class="btn btn-primary btn-sm run-btn" :disabled="!canRunTab(activeTab)" @click="run(activeTab)" :title="runHintTab(activeTab)">
                 <span v-if="activeTab.running" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                {{ activeTab.running ? '运行中… ' + activeTab.elapsedText : '重新运行' }}
+                {{ activeTab.running ? '运行中… ' + activeTab.timer.elapsedText : '重新运行' }}
               </button>
             </template>
             <code-block :code="activeTab.content" lang="yaml" :curl-fn="canCurlTab(activeTab) ? () => yamlCurl(activeTab) : null"></code-block>
@@ -357,7 +357,7 @@ function applyThemeDom(pref) {
           <template #head-extra>
             <button class="btn btn-primary btn-sm run-btn" :disabled="!canRunTab(activeTab)" @click="run(activeTab)" :title="runHintTab(activeTab)">
               <span v-if="activeTab.running" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-              {{ activeTab.running ? '运行中… ' + activeTab.elapsedText : '运行' }}
+              {{ activeTab.running ? '运行中… ' + activeTab.timer.elapsedText : '运行' }}
             </button>
           </template>
           <code-block :code="activeTab.content" lang="yaml" :curl-fn="canCurlTab(activeTab) ? () => yamlCurl(activeTab) : null"></code-block>
@@ -376,6 +376,9 @@ import CollapseCard from './components/collapse-card.js';
 import CodeBlock from './components/code-block.js';
 import AntSelect from './components/ant-select.js';
 import TabBar from './components/tab-bar.js';
+import { usePersistedRef, readStored, writeStored } from './composables/usePersistedRef.js';
+import { usePrefersDark } from './composables/usePrefersDark.js';
+import { createElapsedTimer } from './composables/useElapsedTimer.js';
 
 const { createApp, ref, computed, watch, onMounted } = Vue;
 
@@ -417,9 +420,8 @@ const app = createApp({
     // ===== state =====
     const THEME_KEY = 'tyit-theme';
     const TABS_KEY = 'tyit-tabs'; // 持久化已打开 Tab（仅 file 列表 + 激活项，不存运行结果）
-    const mql = window.matchMedia('(prefers-color-scheme: dark)');
 
-    const theme = ref(localStorage.getItem(THEME_KEY) || 'auto');
+    const theme = usePersistedRef(THEME_KEY, 'auto'); // ref + localStorage 双向同步（写回见 usePersistedRef）
     const themeOptions = [
       { value: 'auto', label: '跟随系统' },
       { value: 'light', label: '浅色' },
@@ -515,7 +517,8 @@ const app = createApp({
         id: file, file, base: baseName(file),
         content: '', previewLoading: true, previewError: '',
         report: null, runInfo: {}, runMs: 0,
-        running: false, elapsedText: '', t0: 0, timerId: null, // 计时器/起点挂 Tab 上 → 后台 Tab 独立计时
+        running: false,
+        timer: createElapsedTimer(), // 秒表挂 Tab 上 → 后台 Tab（面板已卸载）仍独立走表；elapsedText 从 tab.timer 读
         errorMsg: '', varsOverrideText: '',
       };
       tabs.value.push(tab);
@@ -530,11 +533,11 @@ const app = createApp({
         tab.previewLoading = false; // fetch 期间被关也无妨（写到孤儿对象上）
       }
     }
-    // 关闭 Tab：在跑则先清计时器；关的是激活 Tab 时，右邻优先、否则左邻、否则回空态。
+    // 关闭 Tab：在跑则先停表；关的是激活 Tab 时，右邻优先、否则左邻、否则回空态。
     function closeTab(id) {
       const i = tabs.value.findIndex((t) => t.id === id);
       if (i < 0) return;
-      clearInterval(tabs.value[i].timerId);
+      tabs.value[i].timer.stop();
       const wasActive = activeTabId.value === id;
       tabs.value.splice(i, 1);
       if (wasActive) {
@@ -543,7 +546,7 @@ const app = createApp({
       }
     }
     // ===== 运行与 curl =====
-    // Tab 作用域运行：所有状态读写与计时器都挂在传入的 tab 代理上（非共享 ref），
+    // Tab 作用域运行：所有状态读写与秒表都挂在传入的 tab 代理上（非共享 ref），
     // 故切到别的 Tab 后后台 Tab 仍独立计时、结果落到自己身上，多 Tab 可真正并发。
     async function run(tab) {
       tab = tab || activeTab.value;
@@ -551,12 +554,8 @@ const app = createApp({
       tab.running = true;
       tab.errorMsg = '';
       tab.report = null;
-      tab.elapsedText = '0.0s';
-      tab.t0 = performance.now();
-      clearInterval(tab.timerId);
-      tab.timerId = setInterval(() => {
-        tab.elapsedText = ((performance.now() - tab.t0) / 1000).toFixed(1) + 's';
-      }, 100);
+      const t0 = performance.now();
+      tab.timer.start(); // 秒表实时刷 tab.timer.elapsedText（面板/tab-bar 直接读）
       try {
         const resp = await fetch('/api/run', {
           method: 'POST',
@@ -564,7 +563,7 @@ const app = createApp({
           body: JSON.stringify({ file: tab.file, varsYaml: tab.varsOverrideText }),
         });
         const data = await resp.json();
-        tab.runMs = Math.round(performance.now() - tab.t0);
+        tab.runMs = Math.round(performance.now() - t0);
         if (!resp.ok) {
           tab.errorMsg = data.error || `HTTP ${resp.status}`;
           return;
@@ -572,11 +571,10 @@ const app = createApp({
         tab.report = data.report;
         tab.runInfo = { project: data.project, baseUrl: data.baseUrl, apiPrefix: data.apiPrefix, file: data.file };
       } catch (e) {
-        tab.runMs = Math.round(performance.now() - tab.t0);
+        tab.runMs = Math.round(performance.now() - t0);
         tab.errorMsg = String((e && e.message) || e);
       } finally {
-        clearInterval(tab.timerId);
-        tab.timerId = null;
+        tab.timer.stop();
         tab.running = false;
       }
     }
@@ -595,8 +593,7 @@ const app = createApp({
     /* 刷新后恢复已打开的 Tab：只存 file 列表 + 激活项（不存运行结果）。恢复时对每个仍存在的
        场景走 openTab 重新拉预览，再把激活项设回原来的 Tab。 */
     function restoreTabs() {
-      let saved;
-      try { saved = JSON.parse(localStorage.getItem(TABS_KEY) || 'null'); } catch (e) { saved = null; }
+      const saved = readStored(TABS_KEY, null, { json: true });
       if (!saved || !Array.isArray(saved.files)) return;
       const known = new Set(scenarios.value.map((s) => s.file)); // 过滤掉已删除/改名的场景
       for (const file of saved.files) {
@@ -609,21 +606,20 @@ const app = createApp({
     // Tab 列表/激活项变化即写回（getter 只读 file，故运行态 toggle 不触发多余写入）
     watch(
       () => ({ files: tabs.value.map((t) => t.file), active: activeTabId.value }),
-      (v) => { try { localStorage.setItem(TABS_KEY, JSON.stringify(v)); } catch (e) { /* localStorage 不可用则仅本次生效 */ } },
+      (v) => writeStored(TABS_KEY, v, { json: true }),
       { deep: true },
     );
 
     // ===== 主题 =====
-    /* 设 data-bs-theme + 切代码高亮主题；watch 持久化，auto 档跟随系统。实际计算逻辑复用 head
-       预初始化脚本里定义的 window.applyThemeDom，避免和首帧防闪烁那份逻辑重复一次。 */
+    /* 设 data-bs-theme + 切代码高亮主题；theme 的持久化由 usePersistedRef 负责，这里只在切换时应用。
+       实际计算逻辑复用 head 预初始化脚本里定义的 window.applyThemeDom（module 无法在首帧前跑，故留全局），
+       避免和首帧防闪烁那份逻辑重复一次。 */
     function applyTheme(pref) {
       window.applyThemeDom(pref);
     }
-    watch(theme, (v) => {
-      try { localStorage.setItem(THEME_KEY, v); } catch (e) { /* localStorage 不可用则仅本次生效 */ }
-      applyTheme(v);
-    });
-    mql.addEventListener('change', () => { if (theme.value === 'auto') applyTheme('auto'); });
+    watch(theme, (v) => applyTheme(v));
+    // auto 档跟随系统深浅切换（usePrefersDark 负责 matchMedia 订阅/退订）
+    usePrefersDark(() => { if (theme.value === 'auto') applyTheme('auto'); });
 
     onMounted(async () => {
       applyTheme(theme.value);
