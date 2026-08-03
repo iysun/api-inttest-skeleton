@@ -61,6 +61,21 @@ export function projectEnvFile(name: string): string {
   return path.join(projectDirPath(name), '.env');
 }
 
+/**
+ * 读取某项目 .env 到普通对象（不写 process.env），供 runner 的 `${env.*}` 上下文用。
+ * serve 走 loadConfigForProject，刻意不污染 process.env，故 runner 需要单独拿这份。
+ */
+export function projectEnvVars(project?: string): Record<string, string> {
+  if (!project) return {};
+  const f = projectEnvFile(project);
+  if (!fs.existsSync(f)) return {};
+  try {
+    return parseDotenv(fs.readFileSync(f));
+  } catch {
+    return {};
+  }
+}
+
 function readProjectConfig(name: string): ProjectConfigFile {
   try {
     return JSON.parse(fs.readFileSync(projectConfigPath(name), 'utf8')) as ProjectConfigFile;

@@ -6,6 +6,7 @@ import type { ApiCatalog } from '../catalog/types-def.js';
 import { interpolate, getPath } from './context.js';
 import { evalAssert, type AssertResult } from './assert.js';
 import { loadState } from '../state.js';
+import { projectEnvVars } from '../config.js';
 
 export interface ScenarioStep {
   id?: string;
@@ -93,7 +94,7 @@ export function describeScenarioRequests(
 ): ScenarioRequest[] {
   const context: Record<string, unknown> = {
     ...(scenario.vars || {}),
-    env: { ...process.env },
+    env: { ...process.env, ...projectEnvVars(project) },
     state: loadState(project),
     steps: {} as Record<string, unknown>,
   };
@@ -135,7 +136,7 @@ export async function runScenario(
   const context: Record<string, unknown> = {
     ...(scenario.vars || {}),
     ...(varsOverride || {}),
-    env: { ...process.env },
+    env: { ...process.env, ...projectEnvVars(project) },
     state: loadState(project),
     steps: {} as Record<string, unknown>,
   };

@@ -94,7 +94,7 @@ steps:
 ```
 
 ### 变量与插值 `${...}`
-按点路径解析，可用：`${varName}`（vars 或 `save` 的顶层变量）、`${state.xxx}`（`.state/<project>/provision.json` 的铺底结果）、`${steps.<id>.data.xxx}`（同场景已执行步骤响应）、`${env.XXX}`（环境变量，勿写死密钥）。字符串整体是 `"${path}"` 时替换为解析出的**原始值**（可为对象/数组/数字）。调用时可临时覆盖 `vars`（不改文件）：CLI 用 `--var k=v`，web 控制台直接粘贴 YAML，见 [docs/notes/var-overrides.md](docs/notes/var-overrides.md)。
+按点路径解析，可用：`${varName}`（vars 或 `save` 的顶层变量）、`${state.xxx}`（`.state/<project>/provision.json` 的铺底结果）、`${steps.<id>.data.xxx}`（同场景已执行步骤响应）、`${env.XXX}`（环境变量 + **当前项目 `scenarios/<project>/.env` 的键**，项目 `.env` 优先；CLI 与 web 控制台行为一致）。敏感值（凭据、手机号、证件号）只放 `.env`、用 `${env.XXX}` 引用，勿写进 YAML。字符串整体是 `"${path}"` 时替换为解析出的**原始值**（可为对象/数组/数字）。调用时可临时覆盖 `vars`（不改文件）：CLI 用 `--var k=v`，web 控制台直接粘贴 YAML，见 [docs/notes/var-overrides.md](docs/notes/var-overrides.md)。
 
 ### 断言 DSL（对响应 `{code,message,data,httpStatus}` 求值）
 `code == 200`、`data.successCount == 1`、`data.resourceId != null`、`message contains 成功`、`data.x !contains 失败`；单独路径 `data.resourceId` 即真值判断。点路径示例 `data.successData.0.resourceId`。
